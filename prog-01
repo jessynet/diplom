@@ -6,11 +6,13 @@ then
 	exit 1
 fi
 
+SUDO=${SUDO:-sudo}
+
 function installation {
 command -v $1 >/dev/null
 if [ $? -ne 0 ] #если не установлено,то ставим
 then
-	sudo zypper install -y $1 #потребуется пароль
+	$SUDO zypper install -y $1 #потребуется пароль
 	echo "$1 : установлено"
 fi
 }
@@ -22,7 +24,8 @@ function assembly_cmake {
         rm -rf ./*
         cmake "/tmp/archives/$1/$1"
         make
-	return $?
+	build_code=$?
+	return $build_code
 }
 
 
@@ -32,27 +35,32 @@ function assembly_autotools {
         cd "/tmp/archives/$1/$1"
         ./configure
         make
+	build_code=$?
         cp -r ./* "/tmp/archives/$1/build-$1"
+	return $build_code
 }
 
 function install_gems {
 	cp -r $2 "/tmp/archives/$1/build-$1"
-	sudo gem install $2
+	$SUDO gem install $2
 }
 
 function assembly_gem {
 	gem build $2
+	build_code=$?
 	cp -r ./*.gem "/tmp/archives/$1/build-$1"
+	return $build_code
 }
 
-
 function assembly_php { #У меня 7 версия, поэтому устновка для 7, но дальше надо продумать вопрос версий
-	sudo zypper install php7 php7-devel php7-pecl php7-pear
+	$SUDO zypper install php7 php7-devel php7-pecl php7-pear
 	cd "/tmp/archives/$1/$1"
 	/usr/bin/phpize
 	./configure
 	make
+	build_code=$?
 	cp -r ./* "/tmp/archives/$1/build-$1"
+	return $build_code
 }
 
 function assembly_perl_build {
@@ -60,17 +68,24 @@ function assembly_perl_build {
 	whereis Module::Build
 	if [ $? -ne 0 ]
 	then
-		sudo cpan Module::Build
+		$SUDO cpan Module::Build
 	fi
 	perl Build.PL
+	$SUDO ./Build installdeps	
 	./Build
-	cp -r ./* "/tmp/archives/$1/build-$1"
+	build_code=$?
+	$SUDO cp -r ./* "/tmp/archives/$1/build-$1"
+	return $build_code
 }
 
 function assembly_perl_make {
 	installation perl
+	perl ./Makefile.PL
 	make
-	cp -r ./* "/tmp/archives/$1/build-$1"
+	build_code=$?
+	# $SUDO использую для того, чтобы можно было копировать файлы, у которых ограниченные права доступа
+	$SUDO cp -r ./* "/tmp/archives/$1/build-$1"
+	return $build_code
 
 }
 
@@ -174,8 +189,7 @@ esac
 #.-текущая папка,текущий каталог, текущая директория
 if [ $archiver -eq 1 ]
 then
-	if [ tar -tf $path | egrep -q '^(.*/)?\.\./' ]
-	then
+	if tar -tf $path | egrep -q '^(.*/)?\.\./'; then
 		echo "Подозрительные файлы в архиве"
 		exit 1
 	else
@@ -195,85 +209,40 @@ installation make
 #если пакет уже установлен,но требуется обновление автоматически y(yes)
 #The following package is going to be upgraded:.....
 #The following NEW package is going to be installed:....
-cd "/tmp/archives/$arch_name/$arch_name"
-if ! assembly_cmake $arch_name; then 
-	echo ":-)"
-fi
 #Есть файлы и для cmake, и для gnu autotools
-if [ -f ./CMakeLists.txt ] && assembly_cmake $arch_name -eq 0 #CMake
-then
-        assembly_cmake $arch_name
-	if [ $? -eq 0 ]
-	then
-		echo "Собрано с помощью CMake"
-        	sudo make -n install
-		break
-	fi
-fi
-if [ -f ./configure ] && [ -f ./Makefile.in ] && [ -f ./config.h.in ]#GNU Autotools
-then
-	assembly_autotools $arch_name
-	if [ $? -eq 0 ]
-	then		
-		echo "Собрано с помощью GNU Autotools"
-       		sudo make -n install
-		break
-	fi
-fi
-if [ -f ./*.gemspec ]#Ruby
-then    
-	assembly_gem $arch_name ./*.gemspec
-	if [ $? -eq 0 ]
-	then
-       		echo "Собрано с помощью gem"
-		sudo gem install ./*.gem 
-		break
-	fi
-fi
-if [ -f ./Rakefile ] && [ ! -f ./*.gemspec ]#Ruby
-then    
+cd "/tmp/archives/$arch_name/$arch_name"
+if [ -f ./CMakeLists.txt ] && assembly_cmake $arch_name -eq 0; then #CMake
+     	echo "Собрано с помощью CMake"
+       	$SUDO make -n install
+elif [ -f ./configure ] && [ -f ./Makefile.in ] && [ -f ./config.h.in ] && assembly_autotools $arch_name -eq 0; then #GNU Autotools
+	echo "Собрано с помощью GNU Autotools"
+       	$SUDO make -n install
+elif [ -f ./*.gemspec ] && assembly_gem $arch_name ./*.gemspec -eq 0; then #Ruby  
+    	echo "Собрано с помощью gem"
+	$SUDO gem install ./*.gem 
+elif [ -f ./Rakefile ] && [ ! -f ./*.gemspec ]; then #Ruby   
        	rake --all -n #--dry-run
        	if [ $? -eq 0 ]
        	then    
        		echo "Прогон всех шагов завершен успешно"
        	fi
-fi
-if [ -f ./config.m4 ]#PHP
-then    
-	assembly_php $arch_name
-	if [ $? -eq 0 ]
-	then
-       		echo "Собрано с помощью phpize и GNU Autotools"
-		sudo make -n install
-       		cd ./modules
-       		module=$(find *.so)
-       		module_name=${module%.*}
-       		echo 'extension=$module' | sudo tee /etc/php7/conf.d/$module_name.ini >/dev/null
-		break
-	fi
-fi
-if [ -f ./Build.PL ]#Perl
-then    
-	assembly_perl_build $arch_name
-	if [ $? -eq 0 ]
-        then
-		echo "Собрано с помощью Build и Build.PL"
-       		sudo ./Build install
-		break
-	fi
-fi
-if [ -f ./Makefile.PL ]#Perl
-then
-	assembly_perl_make $arch_name
-	if [ $? -eq 0 ]
-	then
-       		echo "Собрано с помощью make и Makefile.PL"
-       		sudo make -n install
-		break
-	fi
+elif [ -f ./config.m4 ] && assembly_php $arch_name -eq 0; then #PHP    
+      	echo "Собрано с помощью phpize и GNU Autotools"
+	$SUDO make -n install
+      	cd ./modules
+       	module=$(find *.so)
+       	module_name=${module%.*}
+       	echo 'extension=$module' | sudo tee /etc/php7/conf.d/$module_name.ini >/dev/null
+elif [ -f ./Build.PL ] && assembly_perl_build $arch_name -eq 0; then #Perl   
+	echo "Собрано с помощью Build и Build.PL"
+      	$SUDO ./Build install
+elif [ -f ./Makefile.PL ] && assembly_perl_make $arch_name -eq 0; then #Perl
+	echo "Собрано с помощью make и Makefile.PL"
+       	$SUDO make -n install
+else
+	echo "Не удалось собрать пакет"
 fi
         
-
 
 #GNU Autotools
 #исполняемый файл будет в каталоге src
