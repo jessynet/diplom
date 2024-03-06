@@ -340,3 +340,4 @@ int main(int argc, char *argv[])
         else cout<<"Не удалось собрать пакет"<<"\n";
     }
 }
+
