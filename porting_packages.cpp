@@ -3,11 +3,18 @@
 #include <string>
 #include <regex>
 #include <array>
+#include <vector>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <experimental/filesystem>
 using namespace std;
 namespace fs = std::experimental::filesystem;
 
+
+string current_path = fs::current_path();
 string os;
+string superuser;
 string unpack_dir;
 string build_dir;
 
@@ -66,6 +73,117 @@ string build_dir;
 
 };*/
 
+string find_file(regex mask, fs::path pathToDir = unpack_dir)
+{
+    string pathToFile;
+
+    fs::directory_iterator dirIterator(pathToDir);
+    //regex mask(m,regex_constants::icase);
+
+    for(const auto& entry : dirIterator)
+    {
+        if(!is_directory(entry))
+        {
+            //if(regex_match(entry.path().filename().c_str(),mask))
+            if(regex_match(entry.path().c_str(),mask))
+            {
+                //cout<<entry.path().filename()<<endl;
+                pathToFile = entry.path();
+                //string path_tst = path_file.substr(1, path_file.size()-1);
+                //cout << path_tst << endl;
+                break;
+            }
+
+        }
+
+    }
+
+    return pathToFile;
+}
+
+bool is_admin() {
+    #ifdef WIN32
+        // TODO
+        return true;
+    #else
+        return getuid() == 0; //краткая запись if(getuid()==0) {return true;} else {return false;}
+    #endif
+}
+
+int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr) {
+    #ifdef WIN32
+        // CreateProcess()
+        // CreateProcessAsUser()
+        // ShellExecute...
+    #else
+        if (need_admin_rights && !is_admin())
+            cmd.insert(cmd.begin(), "sudo");
+        int return_code;
+        pid_t pid = fork();
+        switch (pid) {
+            case -1: cout << "Не удалось разветвить процесс\n";
+            case 0: //дочерний процесс
+            {
+                if (stdout_pipe) {
+                    close(stdout_pipe[0]);
+                    dup2(stdout_pipe[1], STDOUT_FILENO); //делаем STDOUT_FILENO(стандартный вывод) копией stdout_pipe[1]
+                    //int dup2(int old_handle, int new_handle)
+                    //Функция dup2() дублирует old_handle как new_handle. Если имеется файл, который был связан с new_handle до вызова dup2(), 
+                    //то он будет закрыт. В случае успеха возвращается 0, а в случае ошибки —1.
+                    //close(stdout_pipe[1]);
+                }
+
+                char *args[cmd.size()+1];
+                for(int i = 0; i < cmd.size(); i++)
+                {
+                    char *cstr = &(cmd[i])[0];
+                    args[i] = cstr;
+
+                }
+
+                args[cmd.size()] = NULL;
+
+                char* c = args[0];
+                
+                if(execvp(c,args)==-1)
+                {
+                    cout << "Не удалось выполнить комманду exec\n"; 
+                    _exit(42);
+                }    
+            }
+            default: //pid>0 родительский процесс
+            {
+                int status; //цикл, так как дочерний процесс может быть прерван на какое-то время сигналов
+                //например, заснуть, это будет расцененно как завершение дочернего процесса,но это не так
+                
+                if (stdout_pipe) 
+                {
+                    close(stdout_pipe[1]); 
+                    char buf[1024*64];
+                    //std::size_t— это беззнаковый целочисленный тип результата оператора sizeof
+                    ssize_t nread = read(stdout_pipe[0], buf, sizeof(buf));  //Сообщение дочернего процесса
+                    if (nread <= 0)
+                    {
+                        cout << "Не удалось прочитать вывод команды\n";
+                        return 1;
+                    }
+                    else
+                        //cout << "Сообщение дочернего процесса\n" << buf;
+                        cout << "Вывод дочернего процесса\n" << buf;
+                        
+                }
+                
+                do {
+                    waitpid(pid, &status, 0);
+                } while(!WIFEXITED(status)); // WIFEXITED(status) возвращает истинное значение, если потомок нормально завершился, то есть вызвал exit или _exit, или вернулся из функции main().
+                return_code = WEXITSTATUS(status); //если успешно, то ноль,если нет,то больше нуля
+
+           }   
+        }
+    #endif
+    return return_code;
+}
+
 int returnCode(string command)
 {
     return(system(command.c_str()));
@@ -79,13 +197,13 @@ void doCommand(string command)
 
 void installation (string package)
 {
-    if(returnCode("command -v " + package + " >/dev/null") != 0)
+    if(run_command({"command", "-v", package, ">/dev/null"}) != 0)
     {
-        string install;
-        if(os=="opensuse") install = "sudo zypper install -y " + package;
-        else if(os=="ubuntu") install = "sudo apt install -y " + package;
-        else if(os=="freebsd") install = "sudo pkg install -y " + package;
-        if(returnCode(install)==0)
+        vector<string> install;
+        if(os=="opensuse") install = {"zypper", "install", "-y", package};
+        else if(os=="ubuntu") install = {"apt", "install", "-y", package};
+        else if(os=="freebsd") install = {"pkg", "install", "-y", package};
+        if(run_command(install,true)==0)
             cout<<package<<" : установлено"<<"\n";
         else
         {
@@ -95,180 +213,185 @@ void installation (string package)
     }
 }
 
-void check_dependencies(string arch_name, string path)
-{
-    string command("sudo cpanm --installdeps " + unpack_dir+ " 2>"+"/tmp/archives/" + arch_name + "/log.txt");
-
-    FILE* pipe = popen(command.c_str(), "w");
-    pclose(pipe);
-
-    string s;
-    ifstream file(unpack_dir +"/../log.txt");
-    regex reg(".*(is not installed).*",regex_constants::icase);
-    while(getline(file,s)){
-        if(regex_match(s.c_str(),reg) == true)
-        {
-            smatch match;
-            string t;
-            regex ree(R"(\'(.*)\')");
-            if(regex_search(s,match,ree))
-            {
-                t = match[1];
-                size_t pos = t.find(":");
-                string t1 = t.substr(0,pos);
-                string t2 = t.substr(pos+2, t.size()-1);
-                string test_command;
-                if(os=="freebsd") test_command = "sudo pkg install p5-" + t1 + "-" + t2;
-                else if(os=="opensuse") test_command = "sudo zypper install perl-" + t1 + "-" + t2;
-                else if(os=="ubuntu") //Не придумала, как провернуть такое же на ubuntu ибо там пакет называется совсем иначе
-                {
-                    transform(t1.begin(),t1.end(),t1.begin(), ::tolower);
-                    transform(t2.begin(),t2.end(),t2.begin(), ::tolower);
-                    test_command = "sudo apt install lib" + t1 + "-" + t2 + "-" + "perl";
-                }
-                system(test_command.c_str());
-            }
-        
-        }
-    }
-
-    file.close();
-
-}
-
-
 int assembly_cmake (string arch_name)
 {   
     installation("cmake");
     //Все в одной команде,так как вызовы system независимы и каждый раз при вызове будет получаться новая среда
     //rm -r пока без ключа -f, который позволяет совершать удаление без запроса подтверждения
     //-r рекурсивно
-    string assembly;
-    if(os=="opensuse") 
-        assembly = "cd " + build_dir + " && rm -r ./*" + " && cmake " + unpack_dir + " && make";
+    int sum_code = 0;
+    chdir(build_dir.c_str());
+    fs::path tmp{fs::current_path()};
+    uintmax_t n{fs::remove_all(tmp / "*")};
+    if(os=="opensuse")
+    {
+        sum_code += run_command({"cmake", unpack_dir});
+        sum_code += run_command({"make"});
+
+    } 
+        
     else if(os=="ubuntu") 
     {
-        doCommand("sudo apt install -y libncurses-dev libreadline-dev libbsd-dev");
-        assembly = "cd " + build_dir + " && rm -r ./*" + " && cmake " + unpack_dir + " && make";
+        run_command({"apt", "install", "-y", "libncurses-dev", "libreadline-dev", "libbsd-dev"},true);
+        sum_code += run_command({"cmake", unpack_dir});
+        sum_code += run_command({"make"});
     }
     else if(os=="freebsd")
     {
         installation("bash");
-        assembly = "cd " + build_dir + " && cmake " + unpack_dir + " && make";
+        sum_code += run_command({"cmake", unpack_dir});
+        sum_code += run_command({"make"});
     }
-    return returnCode(assembly);
+    chdir(current_path.c_str());
+    sum_code = (sum_code == 0)? 0:1;
+    return sum_code;
 }
 
 int assembly_autotools (string arch_name)
 {
+    int sum_code = 0;
     installation("autoconf");
     installation("automake");
-    return returnCode("cd " + unpack_dir + " && ./configure" + " && make" + " && cp -r ./* " + build_dir);
+    chdir(unpack_dir.c_str());
+    sum_code += run_command({"./configure"});
+    sum_code += run_command({"make"});
+    const auto copyOptions = fs::copy_options::recursive;
+    fs::copy(unpack_dir, build_dir, copyOptions);
+    sum_code = (sum_code == 0)? 0:1;
+    chdir(current_path.c_str());
+    return sum_code;
 }
 
 void install_gems (string arch_name, string path)
 {
-    doCommand("cp -r " + path + " " + build_dir);
-    doCommand("sudo gem install " + path);    
+    run_command({"cp", "-r", path ,build_dir});
+    run_command({"gem", "install", path},true);    
 }
 
 int assembly_gem (string arch_name, string path)
 {
+    int sum_code = 0;
     installation("git");
-    return returnCode("cd " + path + " && gem build ./*.gemspec && cp -r ./*.gem " + build_dir);
+    chdir(path.c_str());
+    regex mask1(".*(.gemspec)",regex_constants::icase);
+    regex mask2(".*(.gem)",regex_constants::icase);
+    string gemspec_path = find_file(mask1); //Написать обертку поиска файла
+    sum_code += run_command({"gem","build",gemspec_path});
+    string gem_path = find_file(mask2);//Написать обертку поиска файла
+    const auto copyOptions = fs::copy_options::recursive;
+    //cout << gemspec_path << endl << gem_path << endl;
+    fs::copy(gem_path, build_dir, copyOptions);
+    chdir(current_path.c_str());
+    sum_code = (sum_code == 0)? 0:1;
+    return sum_code;
 }
 
 int assembly_php (string arch_name)
 {
     int rc;
+    int sum_code = 0;
+    chdir(unpack_dir.c_str());
     if(os=="opensuse") 
     {
-        doCommand("sudo zypper install -y php7 php7-devel php7-pecl php7-pear");
-        rc = returnCode("cd " + unpack_dir + " && /usr/bin/phpize" + " && ./configure" + " && make");
+        run_command({"zypper", "install", "-y", "php7", "php7-devel", "php7-pecl", "php7-pear"},true);
+        sum_code += run_command({"/usr/bin/phpize"});
+        sum_code += run_command({"./configure"});
+        sum_code += run_command({"make"});
 
     }
     else if(os=="ubuntu")
     {
-        doCommand("sudo apt install -y php php-dev php-pear");
-        rc = returnCode("cd " + unpack_dir + " && /usr/bin/phpize" + " && ./configure" + " && make");
+        run_command({"apt", "install", "-y", "php", "php-dev", "php-pear"},true);
+        sum_code += run_command({"/usr/bin/phpize"});
+        sum_code += run_command({"./configure"});
+        sum_code += run_command({"make"});
     } 
     else if(os=="freebsd")
     {
-        doCommand("sudo pkg install-y php83 php83-pear php83-session php83-gd");
-        rc = returnCode("cd " + unpack_dir + " && /usr/local/bin/phpize" + " && ./configure" + " && make");
-    } 
-    doCommand("cp -r " + unpack_dir + "/*" + " " + build_dir);
-    return rc;
+        run_command({"pkg", "install", "-y", "php83", "php83-pear", "php83-session", "php83-gd"},true);
+        sum_code += run_command({"/usr/local/bin/phpize"});
+        sum_code += run_command({"./configure"});
+        sum_code += run_command({"make"});
+    }
+
+    const auto copyOptions = fs::copy_options::recursive;
+    fs::copy(unpack_dir, build_dir, copyOptions);
+    chdir(current_path.c_str());
+    sum_code = (sum_code == 0)? 0:1;
+    return sum_code;
 }
 
 int assembly_perl_build (string arch_name,string path)
 {
-    check_dependencies(arch_name,path);
-    doCommand("sudo cpan Module::Build");
+    int sum_code = 0;
+    //check_dependencies(arch_name,path);
+    run_command({"cpan", "Module::Build"},true);
     if(os=="opensuse")
     {
         installation("perl");
-        doCommand("sudo zypper install -y perl-App-cpanminus");
+        run_command({"zypper", "install", "-y", "perl-App-cpanminus"},true);
     } 
     else if(os=="ubuntu")
     {
         installation("perl");
-        doCommand("sudo apt install -y cpanminus");
+        run_command({"apt", "install", "-y", "cpanminus"},true);
     } 
     //string build = "cd " + unpack_path + " && perl Build.PL" + " && sudo ./Build installdeps" + " && ./Build";
     else if(os=="freebsd")
     {
         installation("perl5");
-        doCommand("sudo pkg install -y p5-App-cpanminus");
+        run_command({"pkg", "install", "-y", "p5-App-cpanminus"},true);
     } 
-    int rc = returnCode("cd " + unpack_dir + " && sudo cpanm --installdeps . && sudo perl Build.PL && sudo ./Build");
-    doCommand("sudo cp -r " + unpack_dir + "/*" + " " + build_dir);
-    return rc;
+
+    chdir(unpack_dir.c_str());
+    sum_code += run_command({"cpanm", "--installdeps", "."},true);
+    sum_code += run_command({"perl", "Build.PL"},true);
+    sum_code += run_command({"./Build"},true);
+    const auto copyOptions = fs::copy_options::recursive;
+    fs::copy(unpack_dir, build_dir, copyOptions);
+    chdir(current_path.c_str());
+    sum_code = (sum_code == 0)? 0:1;
+    return sum_code;
 
 }
 
 int assembly_perl_make (string arch_name)
 {
+    int sum_code = 0;
     if(os=="opensuse")
     {
         installation("perl");
-        doCommand("sudo zypper install -y libtirpc-devel");
+        run_command({"zypper", "install", "-y", "libtirpc-devel"},true);
     } 
     else if(os=="ubuntu") 
     {
         installation("perl");
-        doCommand("sudo apt install -y libtirpc-dev");
+        run_command({"apt", "install", "-y", "libtirpc-dev"},true);
     }
     else if(os=="freebsd") installation("perl5");
-    int rc = returnCode("cd " + unpack_dir + " && perl ./Makefile.PL" + " && make");
-    doCommand("sudo cp -r " + unpack_dir + "/*" + " " + build_dir);
-    return rc;
+    chdir(unpack_dir.c_str());
+    sum_code += run_command({"perl", "./Makefile.PL"});
+    sum_code += run_command({"make"});
+
+    const auto copyOptions = fs::copy_options::recursive;
+    fs::copy(unpack_dir, build_dir, copyOptions);
+
+    sum_code = (sum_code == 0)? 0:1;
+    chdir(current_path.c_str());
+    return sum_code;
 
 }
 
 int empty_gemspec (string path)
 {
-    string command("find " + path + " -type f -name \"*.gemspec\" 2>&1");
-    array<char, 128> buffer;
-    FILE* pipe = popen(command.c_str(), "r");
-    int rc;
-    
-    if (!pipe)
+    int mypipe[2];
+    if(pipe(mypipe)) 
     {
-        cerr << "Не удалось выполнить команду" << endl;
-        return 0;
+        perror("Ошибка канала");
+        exit(1);
+
     }
-    if(fgets(buffer.data(), 128, pipe) != NULL) //Если найден файл ./gemspec
-    {
-        rc = 0;             
-    }
-    else //Если нет файла ./gemspec
-    {
-        rc = 1;
-    }
-    
-    pclose(pipe);
-    return rc;
+    return run_command({"find",path,"-type", "f", "-name", "*.gemspec"},false,mypipe);
 }
 
 
@@ -311,6 +434,7 @@ int main(int argc, char *argv[])
         {
             os = "ubuntu";
         }
+        superuser = "sudo";
     #elif defined(__unix__)
         //unix code
         string command("uname -a");
@@ -323,12 +447,14 @@ int main(int argc, char *argv[])
         }
         pclose(pipe);
         regex reg3(".*(freebsd).*\n",regex_constants::icase);
-        if(regex_match(result.c_str(),reg3) == true){os="freebsd";}
+        if(regex_match(result.c_str(),reg3) == true) {os="freebsd";}
+        superuser = "sudo";
     #elif defined(__APPLE__)
         //apple code(other kinds of apple platforms)    
     #elif defined(WIN32) || defined(_WIN32) || defined(__WIN32__)
         //define something for Windows (32-bit and 64-bit, this part is common)
         /* _Win32 is usually defined by compilers targeting 32 or   64 bit Windows systems */
+        //superuser = "runas......";
         #ifdef _WIN64
             //define something for Windows (64-bit only)
         #else
@@ -338,6 +464,8 @@ int main(int argc, char *argv[])
     #endif    
 
     //это блок кода поместить в try-catch
+
+    current_path = fs::current_path();
 
     string path_arch = argv[1];
     string type_arch;
@@ -402,9 +530,9 @@ int main(int argc, char *argv[])
     else if(type_arch == ".gem")
     {
         installation("ruby");
-        if(os=="opensuse") doCommand("sudo zypper install -y ruby-devel");
-        else if(os=="ubuntu") doCommand("sudo apt install -y ruby-dev");
-	    else if(os=="freebsd") doCommand("sudo pkg install-y rubygem-grpc");
+        if(os=="opensuse") run_command({"zypper", "install", "-y", "ruby-devel"},true);
+        else if(os=="ubuntu") run_command({"apt", "install", "-y", "ruby-dev"},true);
+	    else if(os=="freebsd") run_command({"pkg", "install", "-y", "rubygem-grpc"},true);
         install_gems(arch,path_arch);
         archiver = 2;  
 
@@ -427,52 +555,70 @@ int main(int argc, char *argv[])
 
     if(os=="ubuntu" || os=="opensuse") installation("make");
 
+
     if(archiver!=2)
     {
         if(fs::exists(unpack_dir + "/CMakeLists.txt") && assembly_cmake(arch) == 0) //CMake
         {
             cout<<"Собрано с помощью CMake"<<"\n";
-            doCommand("cd " + build_dir + " && sudo make -n install"); 
+            chdir(build_dir.c_str());
+            run_command({"make", "-n", "install"},true); 
+            chdir(current_path.c_str());
         }
         else if(fs::exists(unpack_dir + "/configure") && fs::exists(unpack_dir + "/Makefile.in")  //GNU Autotools
                 && fs::exists(unpack_dir + "/config.h.in")  && assembly_autotools(arch) == 0)
         {   
             cout<<"Собрано с помощью GNU Autotools"<<"\n";
-            doCommand("cd " + unpack_dir + " && sudo make -n install"); 
+            chdir(unpack_dir.c_str());
+            run_command({"make", "-n", "install"},true); 
+            chdir(current_path.c_str());
         }
         else if(!empty_gemspec(unpack_dir) && assembly_gem(arch, unpack_dir) == 0) //Ruby
         {
             cout<<"Собрано с помощью gem"<<"\n";
-            doCommand("sudo gem install " + unpack_dir + "/*.gem");
+            string tmp_path = unpack_dir + "/*.gem";
+            run_command({"gem", "install", tmp_path},true);
         }
         else if(fs::exists(unpack_dir + "/Rakefile") && empty_gemspec(unpack_dir)) //Ruby
         {
-            doCommand("sudo gem install rake rake-compiler");
-            if(returnCode("cd " + unpack_dir + " && rake --all -n") == 0) cout<<"Прогон всех шагов завершен успешно"<<"\n";    
+            run_command({"gem", "install", "rake", "rake-compiler"},true);
+            chdir(unpack_dir.c_str());
+            if(run_command({"rake", "--all", "-n"}) == 0) cout<<"Прогон всех шагов завершен успешно"<<"\n";  
+            chdir(current_path.c_str());  
         }
         else if(fs::exists(unpack_dir + "/Build.PL") && assembly_perl_build(arch,path_arch) == 0) //Perl
         {
             cout<<"Собрано с помощью Build и Build.PL"<<"\n";
-            doCommand("cd " + unpack_dir + " && sudo ./Build install");
+            chdir(unpack_dir.c_str());
+            run_command({"./Build", "install"},true);
+            chdir(current_path.c_str());
         }
         else if(fs::exists(unpack_dir + "/Makefile.PL") && assembly_perl_make(arch) == 0) //Perl
         {
             cout<<"Собрано с помощью make и Makefile.PL"<<"\n";
-            doCommand("cd " + unpack_dir + " && sudo make -n install");
+            chdir(unpack_dir.c_str());
+            run_command({"make", "-n", "install"},true);
+            chdir(current_path.c_str());
         }
         else if(fs::exists(unpack_dir + "/config.m4") && assembly_php(arch) == 0) //PHP
         {
             cout<<"Собрано с помощью phpize и GNU Autotools"<<"\n";
-            doCommand("cd " + unpack_dir + " && sudo make -n install");
+        
+            chdir(unpack_dir.c_str());
+            run_command({"make", "-n", "install"},true);
+            
+            string tmp_dir = unpack_dir + "/modules";
+            chdir(tmp_dir.c_str());
 
             string cmd_terminal;
             if(os=="opensuse")
-                cmd_terminal = "cd " + unpack_dir + 
-                "/modules && module=$(find *.so) && module_name=${module%.*} && echo 'extension=$module' | sudo tee /etc/php7/conf.d/$module_name.ini >/dev/null";
+                cmd_terminal = "module=$(find *.so) && module_name=${module%.*} && echo \"extension=$module\" | sudo tee /etc/php7/conf.d/$module_name.ini >/dev/null";
             else if(os=="ubuntu")
-                cmd_terminal = "cd " + unpack_dir + 
-                "/modules && module=$(find *.so) && module_name=${module%.*} && echo 'extension=$module' | sudo tee /etc/php/8.1/mods-available/$module_name.ini >/dev/null";
+                cmd_terminal = "module=$(find *.so) && module_name=${module%.*} && echo \"extension=$module\" | sudo tee /etc/php/8.1/mods-available/$module_name.ini >/dev/null";
+            else if(os=="freebsd")
+                cmd_terminal = "module=$(find *.so) && module_name=${module%.*} && echo \"extension=$module\" | sudo tee /usr/local/etc/php/$module_name.ini >/dev/null";
             doCommand(cmd_terminal);
+            chdir(current_path.c_str());
 
         }
         else cout<<"Не удалось собрать пакет"<<"\n";
