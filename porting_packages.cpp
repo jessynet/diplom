@@ -139,17 +139,6 @@ int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_
     return return_code;
 }
 
-int returnCode(string command)
-{
-    return(system(command.c_str()));
-}
-
-void doCommand(string command)
-{
-    system(command.c_str());
-
-}
-
 void installation (string package)
 {
     if(run_command({"command", "-v", package, ">/dev/null"}) != 0)
@@ -491,8 +480,9 @@ int main(int argc, char *argv[])
 
     if(archiver == 1)
     {   
-        string cmd = "tar -tf " + path_arch + " | egrep -q '^(.*/)?\\.\\./'";
-        if(returnCode(cmd.c_str()) == 0)
+        vector<string> cmd = {"sh", "-c", "tar -tf /home/victoria/Загрузки/redis-6.0.2.tgz | egrep -q '^(.*/)?\\.\\./'"};
+        //флаг -c говорит о том, что команды считываются из строки
+        if(run_command(cmd) == 0)
         {
             cout<<"Подозрительные файлы в архиве"<<"\n";
             exit(0);
