@@ -30,8 +30,8 @@ void cd(string path)
 
 string find_file(regex mask, fs::path pathToDir = unpack_dir, bool return_name_file = false)
 {
-    string pathToFile;
-    string namefile;
+    string pathToFile = "";
+    string namefile = "";
 
     fs::directory_iterator dirIterator(pathToDir);
     for(const auto& entry : dirIterator)
@@ -122,36 +122,60 @@ int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_
             if (stdout_pipe) 
             {
                 close(stdout_pipe[1]); 
-                char buf[1024*64];
+                //char buf[1024*64];
                 //std::size_t— это беззнаковый целочисленный тип результата оператора sizeof
                 //ssize_t - тот же size_t, но только знаковый
-                ssize_t nread;
+                //ssize_t nread;
                 /*возможные ситуации:
                 1)Прочитали ровно то количество байт, сколько было в файле и тогда nread = 0 - не ошибка
                 2)Прочитали меньшее число байт, чем планировалось и больше читать нечего, 0 - тоже не ошибка
                 3)Когда ничего не было изначально для чтения - будет 0 и это уже ошибка в рамках данной программы и этой логики(не найден файл,например)
                 */
-                bool tread = false;
-                while((nread = read(stdout_pipe[0], buf, sizeof(buf))) > 0)
-                {
-                    cout << "Вывод дочернего процесса\n" << buf;
-                    tread = true;
-                }
+                //bool tread = false;
+                //while((nread = read(stdout_pipe[0], buf, sizeof(buf))) > 0)
+                //{
+                //    cout << "Вывод дочернего процесса\n" << buf;
+                //    tread = true;
+                //}
                 //ssize_t nread = read(stdout_pipe[0], buf, sizeof(buf));  //Сообщение дочернего процесса
-                if (nread < 0)
-                {
-                    return_code = 1;
+                //if (nread < 0)
+                //{
+                //    return_code = 1;
+                //}
+                //else
+                //    if(!tread)
+                //        return_code = 1;
+
+                FILE *f = fdopen(stdout_pipe[0], "r");
+                if (!f) {
+                    auto es = strerror(errno);
+                    cerr << "fdopen failure: " << es << endl;
+                    exit(1);
                 }
-                else
-                    if(!tread)
+
+                char *line= NULL;
+                size_t linesize = 0;
+                ssize_t linelen;
+                regex reg("^(.*/)?\\.\\./", regex::extended);
+                while((linelen = getline(&line, &linesize, f)) != -1)
+                {
+                   
+                    if(regex_match(line, reg))
+                    {
                         return_code = 1;
+                        break;
+                    }   
+                }
+                free(line);
             }
                 
             do {
                 waitpid(pid, &status, 0);
             } while(!WIFEXITED(status)); // WIFEXITED(status) возвращает истинное значение, если потомок нормально завершился, то есть вызвал exit или _exit, или вернулся из функции main().
-            return_code = return_code || WEXITSTATUS(status); //если успешно, то ноль,если нет,то больше нуля
-
+            int child_status;
+            if(WEXITSTATUS(status) == 0) child_status = 0;
+            else child_status = 1;
+            return_code = return_code || child_status; 
         }   
     }
 #endif
@@ -187,6 +211,7 @@ int assembly_cmake (string arch_name)
     cd(build_dir);
     fs::path tmp{fs::current_path()};
     uintmax_t n{fs::remove_all(tmp / "*")};
+    //uintmax_t = unsigned long long
 
     tmp /= ".cmake";
     tmp /= "api";
@@ -355,14 +380,8 @@ int assembly_perl_make (string arch_name)
 
 int empty_gemspec (string path)
 {
-    int mypipe[2];
-    if(pipe(mypipe)) 
-    {
-        perror("Ошибка канала");
-        exit(1);
-
-    }
-    return run_command({"find",path,"-type", "f", "-name", "*.gemspec"},false,mypipe);
+    regex reg("(.*)\\.gemspec$", regex_constants::icase);
+    return find_file(reg, path,true) != ""; //если 0, то нет gemspec, если 1, то есть gemspec
 }
 
 
@@ -500,9 +519,15 @@ int main(int argc, char *argv[])
     if(archiver == 1)
     {   
         installation("tar");
-        vector<string> cmd = {"sh", "-c", "tar -tf /home/victoria/Загрузки/redis-6.0.2.tgz | egrep -q '^(.*/)?\\.\\./'"};
+        int mypipe[2];
+        if(pipe(mypipe))
+        {
+            perror("Ошибка канала");
+            exit(1);
+        }
+        vector<string> cmd = {"tar", "-tf", path_arch};
         //флаг -c говорит о том, что команды считываются из строки
-        if(run_command(cmd) == 0)
+        if(run_command(cmd,false,mypipe) != 0)
         {
             cerr<<"Подозрительные файлы в архиве"<<"\n";
             exit(1);
@@ -531,14 +556,14 @@ int main(int argc, char *argv[])
             run_command({"make", "-n", "install"},true); 
             cd(current_path);
         }
-        else if(!empty_gemspec(unpack_dir) && assembly_gem(arch, unpack_dir) == 0) //Ruby
+        else if(empty_gemspec(unpack_dir) && assembly_gem(arch, unpack_dir) == 0) //Ruby тут есть gemspec
         {
             cout<<"Собрано с помощью gem"<<"\n";
             regex r("(.*)\\.gem$", regex_constants::icase);
             string tmp_path = find_file(r,unpack_dir);
             run_command({"gem", "install", tmp_path},true);
         }
-        else if(fs::exists(unpack_dir/"Rakefile") && empty_gemspec(unpack_dir)) //Ruby
+        else if(fs::exists(unpack_dir/"Rakefile") && !empty_gemspec(unpack_dir)) //Ruby тут нет gemspec
         {
             run_command({"gem", "install", "rake", "rake-compiler"},true);
             cd(unpack_dir);
