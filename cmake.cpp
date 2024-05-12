@@ -17,8 +17,7 @@ using namespace std;
 namespace fs = std::experimental::filesystem;
 using json = nlohmann::json;
 
-vector<string> linkDirs;
-
+string libname = "";
 
 //fd[0] – открыт на чтение, fd[1] – на запись (вспомните STDIN == 0, STDOUT == 1)
 
@@ -31,9 +30,10 @@ bool is_admin() {
 #endif
 }
 
-void analysis_pkgconfig(vector<string> req_libs, string path);
+int find_install_package_1(int* stdout_pipe, int code_funct);
+int find_install_package_2(int* stdout_pipe);
 
-int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, int recurs = 0, string PATH = "",bool found = true) {
+int run_command_1(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool not_found_full_path_lib = false, bool checking_existence_lib = false) {
 #ifdef WIN32
     // CreateProcess()
     // CreateProcessAsUser()
@@ -54,24 +54,90 @@ int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_
             if (stdout_pipe) {
                 close(stdout_pipe[0]);
                 dup2(stdout_pipe[1], STDOUT_FILENO);
-                //dup2() — Дублирует дескриптор открытого файла в другой
-                //int dup2(int fd1, int fd2);
-                //Возвращает дескриптор файла со значением fd2 , который теперь ссылается на тот же файл, что и fd1 . 
-                //Файл, на который ранее ссылался fd2, закрывается
+                
+            }
 
-                //int dup2(int oldhandle, int newhandle);
-                //Функция dup2() дублирует oldhandle как newhandle. Если имеется файл, который был связан с new_handle до 
-                //вызова dup2(), то он будет закрыт. В случае успеха возвращается 0, а в случае ошибки —1. При ошибке errno 
-                //устанавливается в одно из следующих значений
+            char *args[cmd.size()+1];
+            for(int i = 0; i < cmd.size(); i++)
+            {
+                char *cstr = &(cmd[i])[0];
+                args[i] = cstr;
 
-                //dup2 создает    новый   дескриптор   со   значением
-                //newhandle  Если  файл  связанный   с   дескриптором
-                //newhandle   открыт,   то   при   вызове   dup2   он
-                //закрывается.
+            }
 
-                //Переменные newhandle и oldhandle - это  дескрипторы файлов
+            args[cmd.size()] = NULL;
+
+            char* c = args[0];
+               
+            if(execvp(c,args)==-1)
+            {
+                cerr << "Не удалось выполнить комманду exec\n"; 
+                _exit(42);
+            }    
+        }
+        default: //pid>0 родительский процесс
+        {
+            int status; 
+            if (stdout_pipe) 
+            {
+                if(!checking_existence_lib) //проверка наличия бибилотеки при скачиваниии без установки
+                {
+                    if(!not_found_full_path_lib) //Если обработка не библиотеки из полного пути, которая не найдена 
+                        find_install_package_1(stdout_pipe,1);   
+                    else
+                        if(find_install_package_1(stdout_pipe,2) != 0)
+                            return_code = 1;
+                }
+                else
+                { 
+                    if(find_install_package_2(stdout_pipe) != 0)
+                        return_code = 1;
+
+                }    
+            }
+                
+            do {
+                waitpid(pid, &status, 0);
+            } while(!WIFEXITED(status)); // WIFEXITED(status) возвращает истинное значение, если потомок нормально завершился, то есть вызвал exit или _exit, или вернулся из функции main().
+            int child_status;
+            if(WEXITSTATUS(status) == 0) child_status = 0;
+            else child_status = 1;
+            return_code = return_code || child_status; 
+
+        }   
+    }
+#endif
+    return return_code;
+}
 
 
+int run_command_2(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, string *path = nullptr)
+{
+    #ifdef WIN32
+    // CreateProcess()
+    // CreateProcessAsUser()
+    // ShellExecute...
+#else
+    if (need_admin_rights && !is_admin())
+        cmd.insert(cmd.begin(), "sudo");
+    int return_code = 0;
+    string path_rpm = "";
+    pid_t pid = fork();
+    switch (pid) {
+        case -1: 
+        {
+            cerr << "Не удалось разветвить процесс\n";
+            exit(1);
+        }
+        case 0: //дочерний процесс
+        {
+            if (stdout_pipe) {
+                close(stdout_pipe[0]);
+                dup2(stdout_pipe[1], STDOUT_FILENO); //делаем STDOUT_FILENO(стандартный вывод) копией stdout_pipe[1]
+                //int dup2(int old_handle, int new_handle)
+                //Функция dup2() дублирует old_handle как new_handle. Если имеется файл, который был связан с new_handle до вызова dup2(), 
+                //то он будет закрыт. В случае успеха возвращается 0, а в случае ошибки —1.
+                //close(stdout_pipe[1]);
             }
 
             char *args[cmd.size()+1];
@@ -96,344 +162,46 @@ int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_
         {
             int status; //цикл, так как дочерний процесс может быть прерван на какое-то время сигналов
             //например, заснуть, это будет расцененно как завершение дочернего процесса,но это не так
-                
+            bool found = false;
             if (stdout_pipe) 
             {
-                close(stdout_pipe[1]);
-                //FILE *fdopen(int handle, char *type);
-                //Функция fdopen() связывает входной или выходной поток с файлом, который идентифицируется дескриптором handle. 
-                //Переменная type представляет собой строку символов, определяющую тип доступа, запрашиваемый для потока. 
-                //Тип данных FILE.
-                // Этот тип данных определяет поток и содержит информацию, необходимую для управления потоком, в том числе указатель на буфер  потока, и его показатели состояния
+                
+                close(stdout_pipe[1]); 
+
                 FILE *f = fdopen(stdout_pipe[0], "r");
-                if (!f) 
-                {
-                    //Функция strerror() возвращает указатель на сообщение об ошибке, связанное с номером ошибки.
+                if (!f) {
                     auto es = strerror(errno);
                     cerr << "fdopen failure: " << es << endl;
                     exit(1);
                 }
-                //std::size_t— это беззнаковый целочисленный тип результата оператора sizeof
-                //size_t может хранить максимальный размер теоретически возможного объекта любого типа (включая массив).
-                //ssize_t - тот же size_t, но только знаковый
-                /*возможные ситуации:
-                1)Прочитали ровно то количество байт, сколько было в файле и тогда nread = 0 - не ошибка
-                2)Прочитали меньшее число байт, чем планировалось и больше читать нечего, 0 - тоже не ошибка
-                3)Когда ничего не было изначально для чтения - будет 0 и это уже ошибка в рамках данной программы и этой логики(не найден файл,например)
-                */
 
-               //Указатели представляют собой объекты, значением которых служат адреса других объектов 
-               //(переменных, констант, указателей) или функций. Как и ссылки, указатели применяются для косвенного доступа 
-               //к объекту. 
-
-                //ssize_t getline(char **lineptr, size_t *n, FILE *stream);
-                //Функция getline() считывает целую строку из stream, сохраняет адрес буфера с текстом в *lineptr. 
-                //Буфер завершается null и включает символ новой строки, если был найден разделитель для новой строки.
-                //Если *lineptr равно NULL и *n(разыменование указателя) равно 0 перед вызовом, то getline() выделит буфер для хранения строки. 
-                //Этот буфер должен быть высвобожден программой пользователя, даже если getline() завершилась с ошибкой.
-
-                //При успешном выполнении getline() возвращает количество считанных символов, включая символ разделителя, 
-                //но не включая завершающий байт null ('\0'). Это значение может использоваться для обработки 
-                //встроенных байтов null при чтении строки.
-
-                //Функция возвращает -1 при ошибках чтения строки (включая условие достижения конца файла). 
-                //При возникновении ошибки в errno сохраняется её значение.
-                
-                //Указатель на указатель — это именно то, что вы подумали: указатель, который содержит адрес другого указателя.
-                //Но так как указатель хранит адрес, то мы можем по этому адресу получить хранящееся там значение. 
-                //Для этого применяется операция * или операция разыменования.Результатом этой операции всегда является объект, на который указывает указатель.
-                
-                //char** lineptr = &line; size_t* n = &linesize
                 char *line= NULL;
                 size_t linesize = 0;
                 ssize_t linelen;
-                bool not_found_lib = false;
-                
-                //int* ptr;
-                //int** ptr1 = &ptr;
-                //*ptr1 == ptr
-                //**ptr1 == *ptr
-                if(recurs == 0)
+                int size_path_lib = libname.size();
+                string tmppath = "";
+                while((linelen = getline(&line, &linesize, f)) != -1)
                 {
-                    bool flag = false;
-                    string name_package_for_lib = "";
-                    string spare_package_for_lib = "";
-                    while((linelen = getline(&line, &linesize, f)) != -1)
+                    if(path)
                     {
-                        name_package_for_lib = "";
-                        if(line[0] != 'S' && count(line, line + linelen, '|') == 3)
-                        {
-                            flag = true;
-                            int c = 0;
-                            int ind1 = 0;
-                            int ind2 = 0;
-                            
-                            for(int i = 0; i < linelen; i++)
-                            {
-                                if(line[i] == '|' && (ind1 == 0 || ind2 == 0))
-                                {
-                                    c++;
-                                    if(c==1) ind1 = i;
-                                    else if(c==2) ind2 = i;
-                                }
-                            }
-
-                            for(int j = ind1 + 1; j < ind2; j++)
-                                name_package_for_lib+=line[j];
-                            if(name_package_for_lib[0] == ' ')
-                                name_package_for_lib.erase(0,1);
-                            int size = name_package_for_lib.size();
-                            while(name_package_for_lib[size - 1] == ' ')
-                            {
-                                name_package_for_lib.erase(size - 1);
-                                size = name_package_for_lib.size();
-                            }
-                            if(found)
-                            {
-                                cout << name_package_for_lib << endl;
-                                int mypipe[2];
-                                if(pipe(mypipe))
-                                {
-                                    perror("Ошибка канала");
-                                    exit(1);
-                                }
-                                run_command({"zypper","info", "--requires",name_package_for_lib},false,mypipe,1); //точно одно выводится
-                            }
-                            else
-                            {
-                                regex reg1("^(lib).*");
-                                regex reg2("-");
-                                regex reg3("32bit");
-                                regex reg4("64bit");
-                                if(regex_match(name_package_for_lib, reg1) && !regex_search(name_package_for_lib,reg2))
-                                {
-                                    not_found_lib = true;
-                                    cout << name_package_for_lib << endl;
-                                    //нужно найти последнюю версию пакета (идут в порядке возрастания)
-                                    //run_command({"zypper", "install", "-y", name_package_for_lib},true);
-                                    //break;
-                                }
-                                else if(!regex_search(name_package_for_lib,reg3) && !regex_search(name_package_for_lib,reg4))
-                                    spare_package_for_lib = name_package_for_lib;
-                            }   
-                        }
-               
+                        *path = line;
+                        found = true;
                     }
-
-                    //высвобождение буфера
-                    free(line);
-                    if(!flag)
-                    {
-                        cerr << "Не удалось найти пакет, из которого поставляется библиотека\n";
-                        exit(1);
-
-                    }
-
-                    if(!found && !not_found_lib) //если библиотека не установлена и если не найден пакет lib.....
-                        run_command({"zypper", "install", "-y", spare_package_for_lib},true);
-                    else if(!found && not_found_lib) 
-                        run_command({"zypper", "install", "-y", name_package_for_lib},true);  //установка последней версии пакета
-                }
-                else if(recurs == 1) //считывается вывод команды zypper info --requires 
-                {
-                    bool requires = false;
-                    regex r1("Requires");
-                    regex r2("Требует");
-                    regex r3("pkgconfig");
-                    regex r4("=");
-                    regex r5("-devel");
-                    
-                    string install_package_name = "";
-                    while(linelen = getline(&line, &linesize, f) != -1)
-                    {
-                        if(regex_search(line,r2) || regex_search(line,r1))
-                            requires = true;
-                        if(requires)
-                        {   
-                            if(regex_search(line,r3)) //pkgconfig(name)
-                            {
-                                install_package_name = line;
-                                while(install_package_name[0] == ' ')
-                                    install_package_name.erase(0,1); 
-                                int pos1 = install_package_name.find("(");
-                                int pos2 = install_package_name.find(")");
-                                install_package_name = install_package_name.substr(pos1 + 1, pos2 - pos1 -1);
-                                install_package_name = install_package_name + ".pc"; 
-                                cout << install_package_name;   
-                                int mypipe[2];
-                                if(pipe(mypipe))
-                                {
-                                    perror("Ошибка канала");
-                                    exit(1);
-                                }
-                                fs::path pkgconf("/usr/lib64/pkgconfig");
-                                if(fs::exists(pkgconf/install_package_name))
-                                    run_command({"pkg-config", "--libs", pkgconf/install_package_name}, false, mypipe, 2, pkgconf/install_package_name);                     
-                                else
-                                {
-                                    cerr << "Не найден файл " << install_package_name << endl;
-                                    exit(1);
-                                }
-                            }
-                            else if(regex_search(line,r4) || regex_search(line,r5)) //name = version || name-devel
-                            {
-                                install_package_name = line;
-                                while(install_package_name[0] == ' ')
-                                    install_package_name.erase(0,1); 
-                                cout << install_package_name;
-                                run_command({"zypper", "install", "-y", install_package_name},true);
-                                
-                            }
-                        }
-                    }
-
-                    free(line);
-                }
-                else if(recurs == 2)
-                {
-                    bool dependencies = false;
-                    vector<string> req_libs;
-                    while(linelen = getline(&line, &linesize, f) != -1) 
-                    {
-                        string tmp_line;
-                        string tmp_lib;
-                        tmp_line = line;
-                        int start_ind = 0;
-                        int curr_ind;
-                        int count_probel = 0;
-                        for(int i = 0; i < tmp_line.size(); i++)
-                        {
-                            if(tmp_line[i] == ' ')
-                            {
-                                count_probel++;
-                            }
-        
-                        }
-
-                        if(count_probel == 0)
-                            req_libs.push_back(line);
-                        else
-                        {
-                            for(int i = 0; i < tmp_line.size(); i++)
-                            {
-                                if(tmp_line[i] == ' ')
-                                {
-                                    curr_ind = i;
-                                    tmp_lib = tmp_line.substr(start_ind,curr_ind - start_ind);
-                                    start_ind = i + 1; //индекс первого после пробела элемента
-                                    req_libs.push_back(tmp_lib);
-                                }
-                            }
-
-                            tmp_lib = tmp_line.substr(start_ind);
-                            req_libs.push_back(tmp_lib);
-
-                        }
-                        //for(auto i: req_libs)
-                        //    cout << i << endl;
-                        dependencies = true;
-
-                    }
-                    if(!dependencies)
-                        cout << "Нет зависимостей\n";
                     else
-                        //analysis_pkgconfig(req_libs, PATH); //анализ путей из pkg-config с ключом -L
                     {
-                        int mypipe[2];
-                        for(auto l: req_libs)
-                        {
-                            if(pipe(mypipe)) 
-                            {
-                                perror("Ошибка канала");
-                                exit(1);
-                            }
-                            string so_lib = "";
-                            string a_lib = "";
-                            string tmp_lib_name = "";
-                    
-                            if(l[0] == '-' && l[1] == 'l') //-lname = libname.so || libname.a
-                            {
-                                tmp_lib_name = l.substr(2); //убираем -l
-                                so_lib = "lib" + tmp_lib_name + ".so";
-                                a_lib = "lib" + tmp_lib_name + ".a"; 
-
-                            }    
-                            else if(l[0] == '-' && l[1] == 'p') //-pthread=-lpthread=libpthread.so || libpthread.a
-                            {
-                                tmp_lib_name = l.substr(1); //убираем -
-                                so_lib = "lib" + tmp_lib_name + ".so";
-                                a_lib = "lib" + tmp_lib_name + ".a";
-                            }    
-                            else //прямое подключение name.a || name.so
-                            {
-                                regex r("(.*)\\.so");
-                                if(l.back() == 'a') //.a
-                                    a_lib = l;
-                                else if(regex_match(l,r)) //.so
-                                    so_lib = l;          
-                            }
-
-                            if(so_lib != "" || a_lib != "")
-                            {
-                                for(auto p : linkDirs) //ищем по всем путям указанным
-                                {
-                                    string path = p;
-                                    
-                                    int size = path.size();
-                                    if(path[size - 1] == '/') //удаляется последний / в пути, если он был (нормализация пути)
-                                    {
-                                        path.erase(size - 1);
-                                        size = path.size();
-                                    }
-
-                                    fs::path path_to_lib = path;
-
-
-                                    string reg_lib_so = '/' + so_lib + ".*.*.*/";
-                                    string reg_lib_a = '/' + a_lib + ".*.*.*/";
-
-                                    if(so_lib != "" && a_lib != "") //для случая -lname -pname
-                                    {
-                                        if(!fs::exists(path_to_lib/so_lib) && !fs::exists(path_to_lib/a_lib))
-                                        {
-                                            if(run_command({"zypper","se","--provides", reg_lib_so}, false, mypipe,0,"",false) != 0)
-                                                run_command({"zypper","se","--provides", reg_lib_a}, false, mypipe,0,"",false);    
-                   
-                                        }
-                                    
-                                    }
-                                    else if(so_lib != "") //только .so
-                                    {
-                                        if(!fs::exists(path_to_lib/so_lib))
-                                        {
-                                            run_command({"zypper","se","--provides", reg_lib_so}, false, mypipe,0,"",false);
-                                        
-                                        }
-                                    }
-                                    else if(a_lib != "") //только .a
-                                    {
-                                        if(!fs::exists(path_to_lib/a_lib))
-                                        {
-                                            run_command({"zypper","se","--provides", reg_lib_a}, false, mypipe,0,"",false);
-                                            
-                                        }    
-
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                cerr << "Некорректное имя библиотеки\n";
-                                exit(1);
-                            }
-
-                        }
-                    }
-
-
-                }
+                        tmppath = line;
+                        tmppath = tmppath.substr(0, size_path_lib);
+                        if(tmppath == libname) found = true;
                 
+                    }
+                     
+                }
+                free(line);
             }
+
+            if(!found)
+                return_code = 1;
+
                 
             do {
                 waitpid(pid, &status, 0);
@@ -442,22 +210,209 @@ int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_
             if(WEXITSTATUS(status) == 0) child_status = 0;
             else child_status = 1;
             return_code = return_code || child_status; 
-            /*WEXITSTATUS(status)
-            возвращает восемь младших битов значения, которое вернул завершившийся дочерний процесс. Эти биты 
-            могли быть установлены в аргументе функции exit() или в аргументе оператора return функции main(). Этот макрос можно 
-            использовать, только если WIFEXITED вернул ненулевое значение.*/
-
         }   
     }
 #endif
     return return_code;
+
 }
 
-void analysis_pkgconfig(vector<string> req_libs, string p)
+int find_install_package_1(int* stdout_pipe, int code_funct)
 {
+    close(stdout_pipe[1]);
+   
+    FILE *f = fdopen(stdout_pipe[0], "r");
+    if (!f) 
+    {
+        //Функция strerror() возвращает указатель на сообщение об ошибке, связанное с номером ошибки.
+        auto es = strerror(errno);
+        cerr << "fdopen failure: " << es << endl;
+        exit(1);
+    }
+    
+    char *line= NULL;
+    size_t linesize = 0;
+    ssize_t linelen;
+    bool found_package = false;
+    bool install = false;
+                
+    //int* ptr;
+    //int** ptr1 = &ptr;
+    //*ptr1 == ptr
+    //**ptr1 == *ptr
+    string name_package_for_lib = "";
+               
+    while((linelen = getline(&line, &linesize, f)) != -1)
+    {
+        name_package_for_lib = "";
+        if(line[0] != 'S' && count(line, line + linelen, '|') == 3)
+        {
+            found_package = true;
+            int c = 0;
+            int ind1 = 0;
+            int ind2 = 0;
+                            
+            for(int i = 0; i < linelen; i++)
+            {
+                if(line[i] == '|' && (ind1 == 0 || ind2 == 0))
+                {
+                    c++;
+                    if(c==1) ind1 = i;
+                    else if(c==2) ind2 = i;
+                }
+            }
 
+            for(int j = ind1 + 1; j < ind2; j++)
+                name_package_for_lib+=line[j];
+            if(name_package_for_lib[0] == ' ')
+                name_package_for_lib.erase(0,1);
+            int size = name_package_for_lib.size();
+            while(name_package_for_lib[size - 1] == ' ')
+            {
+                name_package_for_lib.erase(size - 1);
+                size = name_package_for_lib.size();
+            }
+
+            cout << name_package_for_lib << endl;
+
+            if(code_funct == 1)
+            {
+                if(name_package_for_lib != "")
+                {
+                    if(run_command_1({"zypper", "install", "-y", name_package_for_lib},true) == 0)
+                    {
+                        install = true;
+                        break; //пока ставится первый найденный пакет
+                    }
+                    
+                }
+            }
+
+            if(code_funct == 2)  
+            {
+                if(name_package_for_lib != "")
+                {
+                    int mypipe2[2];
+                    if(pipe(mypipe2))
+                    {
+                        perror("Ошибка канала");
+                        exit(1);
+                    }
+                    if(run_command_1({"zypper", "install", "--download-only", "-y", name_package_for_lib},true,mypipe2,true,true) == 0)
+                    {
+                        run_command_1({"zypper", "install", "-y", name_package_for_lib},true);
+                        install = true;
+                        break;
+
+                    }
+                }
+            }      
+            
+                                                       
+        }
+    }
+
+    //высвобождение буфера
+    free(line);
+
+    if(!found_package)
+        cout << "Не удалось найти пакет, который предоставляет библиотеку " << libname << endl; //не прерывается программа ибо может собраться пакет и без этой библиотеки
+
+    if(install) return 0;
+    else return 1;
 }
 
+int find_install_package_2(int* stdout_pipe)
+{
+    bool found = false;
+    close(stdout_pipe[1]);
+    FILE *f = fdopen(stdout_pipe[0], "r");
+    if (!f) 
+    {
+        //Функция strerror() возвращает указатель на сообщение об ошибке, связанное с номером ошибки.
+        auto es = strerror(errno);
+        cerr << "fdopen failure: " << es << endl;
+        exit(1);
+    }
+   
+    char *line= NULL;
+    size_t linesize = 0;
+    ssize_t linelen;
+    bool found_package = false;
+    string path_to_rpm_package = "";
+            
+    string name_package_for_lib = "";
+
+    regex reg1(".rpm");       
+    while((linelen = getline(&line, &linesize, f)) != -1)
+    {
+        name_package_for_lib = "";
+        if(regex_search(line,reg1))
+        {
+            
+            string copy_line = line;
+            int find_ind = copy_line.find(".rpm");
+            int ind_prob;
+            for(int i = find_ind; 0<=i; i--) //от .rpm до начала в поисках первого пробела, этот пробел между именем пакета и текстом вывода
+                if(line[i] == ' ')
+                {
+                    ind_prob = i;
+                    break;
+
+                }
+                    
+            for(int j = ind_prob + 1; j < find_ind + 4; j++)
+                name_package_for_lib+=line[j];
+            if(name_package_for_lib[0] == ' ')
+                name_package_for_lib.erase(0,1);
+            int size = name_package_for_lib.size();
+            while(name_package_for_lib[size - 1] == ' ')
+            {
+                name_package_for_lib.erase(size - 1);
+                size = name_package_for_lib.size();
+            }
+
+            cout << name_package_for_lib << endl;
+                        
+            if(name_package_for_lib != "")
+            {
+                int mypipe3[2];
+                if(pipe(mypipe3))
+                {
+                    perror("Ошибка канала");
+                    exit(1);
+                }
+                run_command_2({"find", "/var/cache", "-type", "f", "-name", name_package_for_lib},true,mypipe3,&path_to_rpm_package);
+                cout << path_to_rpm_package;
+                int mypipe_4[2];
+                if(pipe(mypipe_4))
+                {
+                    perror("Ошибка канала");
+                    exit(1);
+
+                }
+
+                int f = path_to_rpm_package.find("\n");
+                path_to_rpm_package.erase(f);
+
+    
+                if(run_command_2({"rpm", "-ql", path_to_rpm_package},false,mypipe_4) == 0)
+                {
+                    found = true; 
+                    break;
+                }
+            }
+                                                       
+        }
+    }
+
+    //высвобождение буфера
+    free(line);
+
+    if(found) return 0;
+    else return 1;
+
+}
 
 void find_lib(vector<string> libs, vector<string> libsPath)
 {
@@ -468,6 +423,7 @@ void find_lib(vector<string> libs, vector<string> libsPath)
     string so_lib,a_lib;
     string tmp_lib_name; 
     bool found;
+
 
     for(auto l : libs)
     {
@@ -481,17 +437,20 @@ void find_lib(vector<string> libs, vector<string> libsPath)
         {
             //cout << l << endl;
             fs::path path_tmp(l);
+            string lib_name = path_tmp.filename(); //получаем имя библиотеки
+
+            libname = l;
             if(fs::exists(path_tmp))
             {
-                string lib_name = path_tmp.filename(); //получаем имя библиотеки
-                
-                run_command({"zypper", "wp", l}, false, mypipe);
-                continue;
+                run_command_1({"zypper", "se", "--provides", l}, false, mypipe);
             }
-            else
+           else
             {
-                //Сообщение об ошибке или доставить библиотеку? Будет ли она расмолагаться по нужному пути,если доставлять?
+                if(run_command_1({"zypper", "se", "--provides", lib_name}, false, mypipe, true) != 0)
+                    cout << "Не удалось найти пакет, который предоставляет библиотеку " << lib_name << endl;               
             }
+
+            continue;
         
         }
 
@@ -514,10 +473,11 @@ void find_lib(vector<string> libs, vector<string> libsPath)
         }    
         else //прямое подключение name.a || name.so
         {
-            regex r("(.*)\\.so");
-            if(l.back() == 'a') //.a
+            regex r1("(.*)\\.so");
+            regex r2("(.*)\\.a");
+            if(regex_match(l,r2)) //.a
                 a_lib = l;
-            else if(regex_match(l,r)) //.so
+            else if(regex_match(l,r1)) //.so
                 so_lib = l;          
         }
 
@@ -543,33 +503,39 @@ void find_lib(vector<string> libs, vector<string> libsPath)
 
                 if(so_lib != "" && a_lib != "") //для случая -lname -pname
                 {
+                    libname = so_lib;
                     if(fs::exists(path_to_lib/so_lib))
-                    {
-                        run_command({"zypper", "wp", path_to_lib/so_lib}, false, mypipe);
+                    {   
+                        libname = so_lib;
+                        run_command_1({"zypper", "se", "--provides", path_to_lib/so_lib}, false, mypipe);
                         found = true;
                     }
                     else if(fs::exists(path_to_lib/a_lib))
                     {
-                        run_command({"zypper", "wp", path_to_lib/a_lib}, false, mypipe);
+                        libname = a_lib;
+                        run_command_1({"zypper", "se", "--provides", path_to_lib/a_lib}, false, mypipe);
                         found = true;
                       
                     }
+
                 
                 }
                 else if(so_lib != "") //только .so
                 {
+                    libname = so_lib;
                     if(fs::exists(path_to_lib/so_lib))
                     {
-                        run_command({"zypper", "wp", path_to_lib/so_lib}, false, mypipe);
+                        run_command_1({"zypper", "se", "--provides", path_to_lib/so_lib}, false, mypipe);
                         found = true;
                       
                     }
                 }
                 else if(a_lib != "") //только .a
                 {
+                    libname = a_lib;
                     if(fs::exists(path_to_lib/a_lib))
                     {
-                        run_command({"zypper", "wp", path_to_lib/a_lib}, false, mypipe);
+                        run_command_1({"zypper", "se", "--provides", path_to_lib/a_lib}, false, mypipe);
                         found = true;
                         
                     }    
@@ -584,21 +550,7 @@ void find_lib(vector<string> libs, vector<string> libsPath)
         }
 
         if(!found) //библиотека не нашлась ни по одному из путей
-        {
-            string reg_lib_so = '/' + so_lib + ".*.*.*/";
-            string reg_lib_a = '/' + a_lib + ".*.*.*/";
-            if(so_lib != "" && a_lib != "")
-            {
-                if(run_command({"zypper","se","--provides", reg_lib_so}, false, mypipe,0,"",false) != 0)
-                    run_command({"zypper","se","--provides", reg_lib_a}, false, mypipe,0,"",false);
-
-            }
-            else if(so_lib != "")
-                run_command({"zypper","se","--provides", reg_lib_so}, false, mypipe,0,"",false);
-            else if(a_lib != "")
-                run_command({"zypper","se","--provides", reg_lib_a}, false, mypipe,0,"",false);
-        }    
-    
+            run_command_1({"zypper", "se", "--provides", l}, false, mypipe);   //попытка найти пакет и установить библиотеку 
     }
     
 }
@@ -852,7 +804,7 @@ void libs(regex mask, fs::path pathToDir)
 
     check_toolchain(mask1, mask, pathToDir);
 
-    linkDirs = linkDirectories(mask1,"/tmp/archives/oicb-master/build-oicb-master/.cmake/api/v1/reply"); //Все каталоги, в которых стандартно ищутся библиотеки
+    vector <string> linkDirs = linkDirectories(mask1,"/tmp/archives/oicb-master/build-oicb-master/.cmake/api/v1/reply"); //Все каталоги, в которых стандартно ищутся библиотеки
 
     for(auto i: linkDirs)
         cout << i << " ";
@@ -872,26 +824,28 @@ void libs(regex mask, fs::path pathToDir)
                 pathToFile = entry.path();
                 libs = lib_list(pathToFile);
 
-                for(auto j: libs)
-                    cout << j << " ";
-                cout << endl;
-                
                 libPath = libpath(pathToFile); //Тут пути с -L
-
-                if(libPath.size() != 0)
+                if(libs.size() != 0)
                 {
-                    for(auto j: libPath)
+                    for(auto j: libs)
                         cout << j << " ";
                     cout << endl;
+                
+                    if(libPath.size() != 0)
+                    {
+                        for(auto j: libPath)
+                            cout << j << " ";
+                        cout << endl;
 
-                    check_libs(libPath);
+                        check_libs(libPath);
 
-                    find_lib(libs, libPath);
+                        find_lib(libs, libPath);
 
+                    }
+
+                    else
+                        find_lib(libs, linkDirs);
                 }
-
-                else
-                    find_lib(libs, linkDirs);
                        
             }
 
