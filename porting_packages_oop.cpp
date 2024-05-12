@@ -22,48 +22,41 @@ class Os
         fs::path build_dir;
         string archive_name;
         fs::path path_to_archive;
+        fs::path dirBuild;
         string type_archive;
         vector<string> install;
-        string ruby_package;
-        fs::path dirBuild;
-        string perl_package;
+        string perl_package_build;
         string perl_package_make;
         vector <string> phpize;
-        string devnull_path = "^(.*/)?\\.\\./";
+        string template_incorrect_path;
     
-        virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false) {return 1;}
+        virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false) = 0;
 
-        virtual void installation(const vector <string> packages) {cout << "???";}
+        virtual void installation(const vector <string> packages) = 0;
 
         void installation(string package) {vector<string> pkgs = {package}; installation(pkgs); }
 
-        virtual void options() {cout << "???";}
+        virtual void options() = 0;
 
-        virtual void set_ruby_package() {cout << "???";}
+        virtual void install_gems() = 0;
 
-        virtual void set_install() {cout << "???";}
+        virtual void cd(string path) = 0;
 
-        virtual void install_gems () {cout << "???";}
+        virtual int assembly_cmake() = 0;
 
-        virtual void cd(string path) {cout << "???";}
+        virtual int assembly_autotools() = 0;
 
-        virtual void set_dirBuild() {cout << "???";}
+        virtual int gemspec_exists(string path) = 0;
 
-        virtual int assembly_cmake(string arch_name) {return 1;}
+        virtual string find_file(regex mask, fs::path pathToDir, bool return_name_file = false) = 0;
 
-        virtual int assembly_autotools (string arch_name) {return 1;}
+        virtual int assembly_gem() = 0;
 
-        virtual int gemspec_exists (string path) {return 1;}
+        virtual int assembly_perl_build() = 0;
 
-        virtual string find_file(regex mask, fs::path pathToDir, bool return_name_file = false) {return "???";}
+        virtual int assembly_perl_make() = 0;
 
-        virtual int assembly_gem (string arch_name, string path) {return 1;}
-
-        virtual int assembly_perl_build (string arch_name,string path) {return 1;}
-
-        virtual int assembly_perl_make(string arch_name) {return 1;}
-
-        virtual int assembly_php (string arch_name) {return 1;}
+        virtual int assembly_php() = 0;
 
         int get_line(int* stdout_pipe)
         {
@@ -78,7 +71,7 @@ class Os
             char *line= NULL;
             size_t linesize = 0;
             ssize_t linelen;
-            regex reg(devnull_path, regex::extended);
+            regex reg(template_incorrect_path, regex::extended);
             while((linelen = getline(&line, &linesize, f)) != -1)
             {
                         
@@ -115,8 +108,8 @@ class Unix : public Os
 
         virtual void options()
         {
-            //current_path = fs::current_path();
-
+            dirBuild = "/tmp/archives";
+            template_incorrect_path = "^(.*/)?\\.\\./";
             string path_arch = path_to_archive;
             string type_arch;
             cout << path_arch << "\n";
@@ -154,11 +147,6 @@ class Unix : public Os
             cout << unpack_dir << endl;
             cout << build_dir << endl;
         }  
-
-        virtual void set_dirBuild() 
-        {
-            dirBuild = "/tmp/archives";
-        }
 
         bool is_admin() {
         #ifdef WIN32
@@ -240,7 +228,7 @@ class Unix : public Os
             return return_code;
         } 
         
-        virtual void install_gems ()
+        virtual void install_gems()
         {
             run_command({"cp", "-r", path_to_archive ,build_dir});
             run_command({"gem", "install",  path_to_archive},true);    
@@ -274,7 +262,7 @@ class Unix : public Os
             }
         }
 
-        virtual int assembly_cmake (string arch_name)
+        virtual int assembly_cmake()
         {   
             installation({"make"});
             installation({"cmake"});
@@ -303,7 +291,7 @@ class Unix : public Os
             return sum_code;
         }
 
-        virtual int assembly_autotools (string arch_name)
+        virtual int assembly_autotools()
         {
             installation({"make"});
             int sum_code = 0;
@@ -345,17 +333,17 @@ class Unix : public Os
 
         }
 
-        virtual int gemspec_exists (string path)
+        virtual int gemspec_exists(string path)
         {
             regex reg("(.*)\\.gemspec$", regex_constants::icase);
             return find_file(reg, path,true) != ""; //если 0, то нет gemspec, если 1, то есть gemspec
         }
 
-        virtual int assembly_gem (string arch_name, string path)
+        virtual int assembly_gem()
         {
             int sum_code = 0;
             installation({"git"});
-            cd(path);
+            cd(unpack_dir);
             regex mask1(".*(.gemspec)",regex_constants::icase);
             regex mask2(".*(.gem)",regex_constants::icase);
             string gemspec_path = find_file(mask1, unpack_dir);
@@ -367,11 +355,11 @@ class Unix : public Os
             return sum_code;
         }
 
-        virtual int assembly_perl_build (string arch_name,string path)
+        virtual int assembly_perl_build()
         {
             int sum_code = 0;
             run_command({"cpan", "Module::Build"},true);
-            installation({perl_package});
+            installation({perl_package_build});
             cd(unpack_dir);
             sum_code = sum_code || run_command({"cpanm", "--installdeps", "."},true);
             sum_code = sum_code || run_command({"perl", "Build.PL"},true);
@@ -383,7 +371,7 @@ class Unix : public Os
 
         }
 
-        virtual int assembly_perl_make(string arch_name)
+        virtual int assembly_perl_make()
         {
             installation({"make"});
             int sum_code = 0;
@@ -398,7 +386,7 @@ class Unix : public Os
             return sum_code;
         }
 
-        virtual int assembly_php (string arch_name)
+        virtual int assembly_php()
         {
             installation({"make"});
             int rc;
@@ -425,43 +413,80 @@ class FreeBsd : public Unix
             cout << "Это FreeBSD!\n";
         }
 
-        virtual void set_ruby_package() 
-        {
-            ruby_package = "rubygem-grpc";
-        }
-
-        virtual void set_install() 
-        {
-            install = {"pkg", "install", "-y"};
-        }
-
-        virtual int assembly_cmake (string arch_name)
+        virtual int assembly_cmake()
         {
             installation({"bash"});
-            return Unix::assembly_cmake(arch_name);
+            return Unix::assembly_cmake();
 
         }
 
-        virtual int assembly_perl_build (string arch_name,string path)
+        virtual int assembly_autotools()
         {
-            perl_package = "p5-App-cpanminus";
-            Unix::installation({"perl5"});
-            return Unix::assembly_perl_build(arch_name, path);
+            return Unix::assembly_autotools();
         }
 
-        virtual int assembly_perl_make(string arch_name)
+        virtual int assembly_perl_build()
+        {
+            perl_package_build = "p5-App-cpanminus";
+            Unix::installation({"perl5"});
+            return Unix::assembly_perl_build();
+        }
+
+        virtual int assembly_perl_make()
         {
             Unix::installation({"perl5"});
-            return Unix::assembly_perl_make(arch_name);
+            return Unix::assembly_perl_make();
 
         }
 
-        virtual int assembly_php (string arch_name)
+        virtual int assembly_php()
         {
             phpize = {"/usr/local/bin/phpize"};
             Unix::installation({"php83", "php83-pear", "php83-session", "php83-gd"});
-            return Unix::assembly_php(arch_name);
-        
+            return Unix::assembly_php();
+        }
+
+        virtual int assembly_gem()
+        {
+            return Unix::assembly_gem();
+        }
+
+        virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false)
+        {
+            return Unix::run_command(cmd, need_admin_rights, stdout_pipe, hide_stderr);
+
+        }
+
+        virtual void installation(const vector <string> packages)
+        {
+            Unix::installation(packages);
+        }
+
+        virtual void options()
+        {
+            Unix::options();
+        }
+
+        virtual void cd(string path)
+        {
+            Unix::cd(path);
+        }
+
+        virtual string find_file(regex mask, fs::path pathToDir, bool return_name_file = false)
+        {
+            return Unix::find_file(mask,pathToDir, return_name_file);
+
+        }
+
+        virtual int gemspec_exists(string path)
+        {
+            return Unix::gemspec_exists(path);
+        }
+
+        virtual void install_gems()
+        {
+            Unix::installation({"rubygem-grpc"});
+            Unix::install_gems();
         }
 
 };
@@ -491,6 +516,73 @@ class Linux : public Unix
             return os_name;
         }
 
+        virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false)
+        {
+            return Unix::run_command(cmd, need_admin_rights, stdout_pipe, hide_stderr);
+
+        }
+
+        virtual void installation(const vector <string> packages)
+        {
+            Unix::installation(packages);
+        }
+
+        virtual void options()
+        {
+            Unix::options();
+        }
+
+        virtual void cd(string path)
+        {
+            Unix::cd(path);
+        }
+
+        virtual string find_file(regex mask, fs::path pathToDir, bool return_name_file = false)
+        {
+            return Unix::find_file(mask,pathToDir, return_name_file);
+
+        }
+
+        virtual int assembly_cmake()
+        {
+            return Unix::assembly_cmake();
+        }
+
+        virtual int assembly_autotools()
+        {
+            return Unix::assembly_autotools();
+        }
+
+        virtual int assembly_gem()
+        {
+            return Unix::assembly_gem();
+        }
+
+        virtual int assembly_perl_build()
+        {
+            return Unix::assembly_perl_build();
+        }
+
+        virtual int assembly_perl_make()
+        {
+            return Unix::assembly_perl_make();
+        }
+
+        virtual int assembly_php()
+        {
+            return Unix::assembly_php();
+        }
+
+        virtual int gemspec_exists(string path)
+        {
+            return Unix::gemspec_exists(path);
+        }
+
+        virtual void install_gems()
+        {
+            Unix::install_gems();
+        }
+
 };
 
 class OpenSuse : public Linux
@@ -501,39 +593,81 @@ class OpenSuse : public Linux
             cout << "Это OpenSuse!\n";
         }
 
-        virtual void set_ruby_package() 
+        virtual int assembly_perl_build()
         {
-            ruby_package = "ruby-devel";
+            perl_package_build = "perl-App-cpanminus";
+            Linux::installation({"perl"});
+            return Linux::assembly_perl_build();
         }
 
-        virtual void set_install() 
+        virtual int assembly_perl_make()
         {
-            install = {"zypper", "install", "-y"};
-        }
-
-        virtual int assembly_perl_build (string arch_name,string path)
-        {
-            perl_package = "perl-App-cpanminus";
-            Unix::installation({"perl"});
-            return Unix::assembly_perl_build(arch_name, path);
-        }
-
-        virtual int assembly_perl_make(string arch_name)
-        {
-            Unix::installation({"perl"});
+            Linux::installation({"perl"});
             perl_package_make = "libtirpc-devel";
-            Unix::installation({perl_package_make});
-            return Unix::assembly_perl_make(arch_name);
+            Linux::installation({perl_package_make});
+            return Linux::assembly_perl_make();
 
         }
 
-        virtual int assembly_php (string arch_name)
+        virtual int assembly_php()
         {
-            Unix::installation({"php7", "php7-devel", "php7-pecl", "php7-pear"});
+            Linux::installation({"php7", "php7-devel", "php7-pecl", "php7-pear"});
             phpize = {"/usr/bin/phpize"};
-            return Unix::assembly_php(arch_name);;
+            return Linux::assembly_php();;
         }
 
+        virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false)
+        {
+            return Linux::run_command(cmd, need_admin_rights, stdout_pipe, hide_stderr);
+
+        }
+
+        virtual void installation(const vector <string> packages)
+        {
+            Linux::installation(packages);
+        }
+
+        virtual void options()
+        {
+            Linux::options();
+        }
+
+        virtual void cd(string path)
+        {
+            Linux::cd(path);
+        }
+
+        virtual string find_file(regex mask, fs::path pathToDir, bool return_name_file = false)
+        {
+            return Linux::find_file(mask,pathToDir, return_name_file);
+
+        }
+
+        virtual int assembly_cmake()
+        {
+            return Linux::assembly_cmake();
+        }
+
+        virtual int assembly_autotools()
+        {
+            return Linux::assembly_autotools();
+        }
+
+        virtual int assembly_gem()
+        {
+            return Linux::assembly_gem();
+        }
+
+        virtual int gemspec_exists (string path)
+        {
+            return Linux::gemspec_exists(path);
+        }
+
+        virtual void install_gems()
+        {
+            Linux::installation({"ruby-devel"});
+            Linux::install_gems();
+        }
 
 };
 
@@ -545,48 +679,85 @@ class Ubuntu : public Linux
             cout << "Это Ubuntu!\n";
         }
 
-        virtual void set_ruby_package() 
-        {
-            ruby_package = "ruby-dev";
-        }
-
-        virtual void set_install() 
-        {
-            install = {"apt", "install", "-y"};
-        }
-
-        virtual int assembly_cmake (string arch_name)
+        virtual int assembly_cmake()
         {
             installation({"libncurses-dev", "libreadline-dev", "libbsd-dev"});
-            return Unix::assembly_cmake(arch_name);
+            return Linux::assembly_cmake();
 
         }
 
-        virtual int assembly_perl_build (string arch_name,string path)
+        virtual int assembly_perl_build()
         {
 
-            perl_package = "cpanminus";
-            Unix::installation({"perl"});
-            return Unix::assembly_perl_build(arch_name, path);
+            perl_package_build = "cpanminus";
+            Linux::installation({"perl"});
+            return Linux::assembly_perl_build();
         }
 
-        virtual int assembly_perl_make(string arch_name)
+        virtual int assembly_perl_make()
         {
-            Unix::installation({"perl"});
+            Linux::installation({"perl"});
             perl_package_make = "libtirpc-dev";
-            Unix::installation({perl_package_make});
-            return Unix::assembly_perl_make(arch_name);
+            Linux::installation({perl_package_make});
+            return Linux::assembly_perl_make();
 
         }
 
-        virtual int assembly_php (string arch_name)
+        virtual int assembly_php()
         {
             phpize = {"/usr/bin/phpize"};
-            Unix::installation({"php", "php-dev", "php-pear"});
-            return Unix::assembly_php(arch_name);
+            Linux::installation({"php", "php-dev", "php-pear"});
+            return Linux::assembly_php();
 
         }
 
+        virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false)
+        {
+            return Linux::run_command(cmd, need_admin_rights, stdout_pipe, hide_stderr);
+
+        }
+
+        virtual void installation(const vector <string> packages)
+        {
+            Linux::installation(packages);
+        }
+
+        virtual void options()
+        {
+            Linux::options();
+        }
+
+        virtual void cd(string path)
+        {
+            Linux::cd(path);
+        }
+
+        virtual string find_file(regex mask, fs::path pathToDir, bool return_name_file = false)
+        {
+            return Linux::find_file(mask,pathToDir, return_name_file);
+
+        }
+
+        virtual int assembly_autotools()
+        {
+            return Linux::assembly_autotools();
+        }
+
+        virtual int assembly_gem()
+        {
+            return Linux::assembly_gem();
+        }
+
+        virtual int gemspec_exists(string path)
+        {
+            return Linux::gemspec_exists(path);
+        }
+
+        virtual void install_gems()
+        {
+            Linux::installation({"ruby-dev"});
+            Linux::install_gems();
+        }
 
 };
 
@@ -594,9 +765,6 @@ class Ubuntu : public Linux
 void toDo(Os &os)
 {
     os.options();
-    
-    os.set_install();
-
     vector<string> unpack_cmd;
     enum archiver
     {
@@ -624,16 +792,13 @@ void toDo(Os &os)
     }
     else if(os.type_archive == ".gem")
     {
-        os.set_ruby_package();
         os.installation("ruby");
-        os.installation(os.ruby_package);
         os.install_gems();
         archiver = gem;  
     }
 
     if(archiver == tar)
     {   
-        os.set_dirBuild();
         os.installation("tar");
         int mypipe[2];
         if(pipe(mypipe))
@@ -657,7 +822,7 @@ void toDo(Os &os)
             cout<<"Архив разархивирован"<<"\n";
         }
 
-        if(fs::exists(os.unpack_dir/"CMakeLists.txt") && os.assembly_cmake(os.archive_name) == 0) //CMake
+        if(fs::exists(os.unpack_dir/"CMakeLists.txt") && os.assembly_cmake() == 0) //CMake
         {
             cout<<"Собрано с помощью CMake"<<"\n";
             os.cd(os.build_dir);
@@ -666,14 +831,14 @@ void toDo(Os &os)
             os.cd(os.current_path);
         }
         else if(fs::exists(os.unpack_dir/"configure") && fs::exists(os.unpack_dir/"Makefile.in")  //GNU Autotools
-                && fs::exists(os.unpack_dir/"config.h.in")  && os.assembly_autotools(os.archive_name) == 0)
+                && fs::exists(os.unpack_dir/"config.h.in")  && os.assembly_autotools() == 0)
         {   
             cout<<"Собрано с помощью GNU Autotools"<<"\n";
             os.cd(os.unpack_dir);
             os.run_command({"make", "-n", "install"},true); 
             os.cd(os.current_path);
         }
-        else if(os.gemspec_exists(os.unpack_dir) && os.assembly_gem(os.archive_name, os.unpack_dir) == 0) //Ruby тут есть gemspec
+        else if(os.gemspec_exists(os.unpack_dir) && os.assembly_gem() == 0) //Ruby тут есть gemspec
         {
             cout<<"Собрано с помощью gem"<<"\n";
             regex r("(.*)\\.gem$", regex_constants::icase);
@@ -687,7 +852,7 @@ void toDo(Os &os)
             if(os.run_command({"rake", "--all", "-n"}) == 0) cout<<"Прогон всех шагов завершен успешно"<<"\n";  
             os.cd(os.current_path);  
         }
-        else if(fs::exists(os.unpack_dir/"Build.PL") && os.assembly_perl_build(os.archive_name,os.path_to_archive) == 0) //Perl
+        else if(fs::exists(os.unpack_dir/"Build.PL") && os.assembly_perl_build() == 0) //Perl
         {
             cout<<"Собрано с помощью Build и Build.PL"<<"\n";
             os.cd(os.unpack_dir);
@@ -695,14 +860,14 @@ void toDo(Os &os)
             os.cd(os.current_path);
         }
 
-        else if(fs::exists(os.unpack_dir/"Makefile.PL") && os.assembly_perl_make(os.archive_name) == 0) //Perl
+        else if(fs::exists(os.unpack_dir/"Makefile.PL") && os.assembly_perl_make() == 0) //Perl
         {
             cout<<"Собрано с помощью make и Makefile.PL"<<"\n";
             os.cd(os.unpack_dir);
             os.run_command({"make", "-n", "install"},true);
             os.cd(os.current_path);
         }
-        else if(fs::exists(os.unpack_dir/"config.m4") && os.assembly_php(os.archive_name) == 0) //PHP
+        else if(fs::exists(os.unpack_dir/"config.m4") && os.assembly_php() == 0) //PHP
         {
             cout<<"Собрано с помощью phpize и GNU Autotools"<<"\n";
         
@@ -742,6 +907,7 @@ string os;
     {   
         OpenSuse distrib;
         distrib.path_to_archive = argv[1];
+        distrib.install = {"zypper", "install", "-y"};
         toDo(distrib);
         
     }
@@ -749,6 +915,7 @@ string os;
     {
         Ubuntu distrib;
         distrib.path_to_archive = argv[1];
+        distrib.install = {"apt", "install", "-y"};
         toDo(distrib);
         
     }
@@ -764,6 +931,7 @@ string os;
     if(regex_match(os,reg3) == true) 
     {
         FreeBsd distrib;
+        distrib.install = {"pkg", "install", "-y"};;
         distrib.path_to_archive = argv[1];
         toDo(distrib);
     }
