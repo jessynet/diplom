@@ -925,7 +925,6 @@ string os;
 
 #elif defined(__unix__)
     Unix system;
-    system.set_path_to_archive(argv[1]);
     os = system.os_name("uname -a");
     regex reg3(".*(freebsd).*\n",regex_constants::icase);
     if(regex_match(os,reg3) == true) 
