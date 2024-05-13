@@ -181,6 +181,7 @@ void find_lib(vector<string> libs, vector<string> libsPath)
     string tmp_lib_name; 
     bool found;
     vector <fs::path> path_copy;
+    int mypipe2[2];
     string nl = "";
 
 
@@ -332,8 +333,12 @@ void find_lib(vector<string> libs, vector<string> libsPath)
 		    cout << "Библиотека " << l << " не найдена ни по одному из указанных путей" << endl;
             cout << "Поиск пакета, который предоставляет необходимую библиотеку по одному из путей" << endl;
 		    for(auto i: path_copy)
-			    if(run_command_1({"pkg", "provides", i/nl}, false, mypipe)==0)
+			{
+                libname = i/nl;
+                pipe(mypipe2);
+                if(run_command_1({"pkg", "provides", "^" + libname}, false, mypipe2) == 0)
 				    break;
+            }
 	    } 
     }
    
