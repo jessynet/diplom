@@ -177,6 +177,8 @@ void find_lib(vector<string> libs, vector<string> libsPath)
     string so_lib,a_lib;
     string tmp_lib_name; 
     bool found;
+    vector <fs::path> path_copy;
+    string nl = "";
 
 
     for(auto l : libs)
@@ -194,9 +196,16 @@ void find_lib(vector<string> libs, vector<string> libsPath)
             string lib_name = path_tmp.filename(); //получаем имя библиотеки
 
             libname = l;
-            if(run_command_1({"apt-file", "-F", "search", l}, false, mypipe) != 0)
-                cout << "Не удалось найти пакет, который предоставляет библиотеку " << lib_name << endl;               
-        
+
+            if(fs::exists(l))
+                cout << "Библиотека " << l << " найдена" << endl;
+            else
+            {
+                cout << "Библиотека " << l << " не найдена" << endl;
+                cout << "Поиск пакета, который предоставляет необходимую библиотеку" << endl;
+            }
+
+            run_command_1({"apt-file", "-F", "search", l}, false, mypipe);           
             continue;
         
         }
@@ -248,18 +257,24 @@ void find_lib(vector<string> libs, vector<string> libsPath)
 
                 fs::path path_to_lib = path;
 
+                path_copy.push_back(path_to_lib);
+
                 if(so_lib != "" && a_lib != "") //для случая -lname -pname
                 {
-                    libname = so_lib;
+                    libname = path_to_lib/so_lib;
+                    nl = so_lib;
                     if(fs::exists(path_to_lib/so_lib))
                     {   
-                        libname = so_lib;
+                        libname = path_to_lib/so_lib;
+			            cout << "Библиотека " << libname << " найдена" << endl;
                         run_command_1({"apt-file", "-F",  "search", path_to_lib/so_lib}, false, mypipe);
                         found = true;
                     }
                     else if(fs::exists(path_to_lib/a_lib))
                     {
-                        libname = a_lib;
+                        nl = a_lib;
+                        libname = path_to_lib/a_lib;
+                        cout << "Библиотека " << libname << " найдена" << endl;
                         run_command_1({"apt-file", "-F", "search", path_to_lib/a_lib}, false, mypipe);
                         found = true;
                       
@@ -269,9 +284,11 @@ void find_lib(vector<string> libs, vector<string> libsPath)
                 }
                 else if(so_lib != "") //только .so
                 {
-                    libname = so_lib;
+                    libname = path_to_lib/so_lib;
+                    nl = so_lib;
                     if(fs::exists(path_to_lib/so_lib))
                     {
+                        cout << "Библиотека " << libname << " найдена" << endl;
                         run_command_1({"apt-file", "-F", "search", path_to_lib/so_lib}, false, mypipe);
                         found = true;
                       
@@ -280,9 +297,11 @@ void find_lib(vector<string> libs, vector<string> libsPath)
                 else if(a_lib != "") //только .a
                 {
 
-                    libname = a_lib;
+                    libname = path_to_lib/a_lib;
+                    nl = a_lib;
                     if(fs::exists(path_to_lib/a_lib))
                     {
+                        cout << "Библиотека " << libname << " найдена" << endl;
                         run_command_1({"apt-file", "-F", "search", path_to_lib/a_lib}, false, mypipe);
                         found = true;
                         
@@ -300,7 +319,14 @@ void find_lib(vector<string> libs, vector<string> libsPath)
         }
 
         if(!found) //библиотека не нашлась ни по одному из путей
-            run_command_1({"apt-file", "search", libname}, false, mypipe);   //попытка найти пакет и установить библиотеку 
+        {
+            cout << "Библиотека " << l << " не найдена ни по одному из указанных путей" << endl;
+            cout << "Поиск пакета, который предоставляет необходимую библиотеку по одному из путей" << endl;
+            for(auto i: path_copy)
+			    if(run_command_1({"apt-file", "search", i/nl}, false, mypipe) == 0)
+				    break;
+               //попытка найти пакет и установить библиотеку 
+        }
     }
     //libname = "/usr/lib/x86_64-linux-gnu/libaqbanking.so";
     //libname = "libaqbanking.so";
