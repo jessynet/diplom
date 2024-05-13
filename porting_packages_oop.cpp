@@ -8,10 +8,18 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include "cmake_opensuse.h"
+#include "cmake_ubuntu.h"
+#include "cmake_freebsd.h"
 #include <experimental/filesystem>
 using namespace std;
 namespace fs = std::experimental::filesystem;
 
+
+/*Различие в том, где препроцессор будет начинать поиск файла some.h. Если использовать директиву #include "some.h", то 
+сначала будут просмотрены локальные (по отношению к проекту) папки включения файлов. Если использовать #include <some.h>,
+то сначала будут просматриваться глобальные (по отношению к проекту) папки включения файлов. Глобальные папки включения -
+это папки, прописанные в настройке среды разработки, локальные - это те, которые прописаны в настройках проекта.*/
 
 class Os
 {
@@ -416,6 +424,13 @@ class FreeBsd : public Unix
         virtual int assembly_cmake()
         {
             installation({"bash"});
+
+            fs::path path_to_reply = build_dir;
+            path_to_reply /= ".cmake";
+            path_to_reply /= "api";
+            path_to_reply /= "v1";
+            path_to_reply /= "reply";
+            find_depend_freebsd(path_to_reply, build_dir);
             return Unix::assembly_cmake();
 
         }
@@ -645,6 +660,12 @@ class OpenSuse : public Linux
 
         virtual int assembly_cmake()
         {
+            fs::path path_to_reply = build_dir;
+            path_to_reply /= ".cmake";
+            path_to_reply /= "api";
+            path_to_reply /= "v1";
+            path_to_reply /= "reply";
+            find_depend_opensuse(path_to_reply, build_dir);
             return Linux::assembly_cmake();
         }
 
@@ -681,7 +702,14 @@ class Ubuntu : public Linux
 
         virtual int assembly_cmake()
         {
-            installation({"libncurses-dev", "libreadline-dev", "libbsd-dev"});
+            fs::path path_to_reply = build_dir;
+            path_to_reply /= ".cmake";
+            path_to_reply /= "api";
+            path_to_reply /= "v1";
+            path_to_reply /= "reply";
+            find_depend_ubuntu(path_to_reply, build_dir);
+            
+            //installation({"libncurses-dev", "libreadline-dev", "libbsd-dev"});
             return Linux::assembly_cmake();
 
         }
