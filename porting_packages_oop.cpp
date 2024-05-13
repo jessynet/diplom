@@ -36,8 +36,9 @@ class Os
         string perl_package_build;
         string perl_package_make;
         vector <string> phpize;
-        string template_incorrect_path;
-    
+        string template_incorrect_path; //указатель на функцию из .h
+        void (*ptrFunc)(fs::path,fs::path);
+
         virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false) = 0;
 
         virtual void installation(const vector <string> packages) = 0;
@@ -59,6 +60,8 @@ class Os
         virtual string find_file(regex mask, fs::path pathToDir, bool return_name_file = false) = 0;
 
         virtual int assembly_gem() = 0;
+
+        virtual void cmake_libs() = 0;
 
         virtual int assembly_perl_build() = 0;
 
@@ -270,6 +273,7 @@ class Unix : public Os
             }
         }
 
+    
         virtual int assembly_cmake()
         {   
             installation({"make"});
@@ -411,6 +415,16 @@ class Unix : public Os
             return sum_code;
         }
 
+        virtual void cmake_libs()
+        {
+            fs::path path_to_reply = build_dir;
+            path_to_reply /= ".cmake";
+            path_to_reply /= "api";
+            path_to_reply /= "v1";
+            path_to_reply /= "reply";
+            ptrFunc(path_to_reply, build_dir);
+        }
+
 };
 
 class FreeBsd : public Unix
@@ -421,16 +435,16 @@ class FreeBsd : public Unix
             cout << "Это FreeBSD!\n";
         }
 
+        virtual void cmake_libs()
+        {
+            ptrFunc = find_depend_freebsd;
+            Unix::cmake_libs();
+
+        }
+
         virtual int assembly_cmake()
         {
             installation({"bash"});
-
-            fs::path path_to_reply = build_dir;
-            path_to_reply /= ".cmake";
-            path_to_reply /= "api";
-            path_to_reply /= "v1";
-            path_to_reply /= "reply";
-            find_depend_freebsd(path_to_reply, build_dir);
             return Unix::assembly_cmake();
 
         }
@@ -529,6 +543,11 @@ class Linux : public Unix
             in.close();
 
             return os_name;
+        }
+
+        virtual void cmake_libs()
+        {
+            Unix::cmake_libs();
         }
 
         virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false)
@@ -658,14 +677,15 @@ class OpenSuse : public Linux
 
         }
 
+        virtual void cmake_libs()
+        {
+            ptrFunc = find_depend_opensuse;
+            Linux::cmake_libs();
+
+        }
+
         virtual int assembly_cmake()
         {
-            fs::path path_to_reply = build_dir;
-            path_to_reply /= ".cmake";
-            path_to_reply /= "api";
-            path_to_reply /= "v1";
-            path_to_reply /= "reply";
-            find_depend_opensuse(path_to_reply, build_dir);
             return Linux::assembly_cmake();
         }
 
@@ -700,15 +720,15 @@ class Ubuntu : public Linux
             cout << "Это Ubuntu!\n";
         }
 
+        virtual void cmake_libs()
+        {
+            ptrFunc = find_depend_ubuntu;
+            Linux::cmake_libs();
+
+        }
+
         virtual int assembly_cmake()
         {
-            fs::path path_to_reply = build_dir;
-            path_to_reply /= ".cmake";
-            path_to_reply /= "api";
-            path_to_reply /= "v1";
-            path_to_reply /= "reply";
-            find_depend_ubuntu(path_to_reply, build_dir);
-            
             //installation({"libncurses-dev", "libreadline-dev", "libbsd-dev"});
             return Linux::assembly_cmake();
 
@@ -853,6 +873,7 @@ void toDo(Os &os)
         if(fs::exists(os.unpack_dir/"CMakeLists.txt") && os.assembly_cmake() == 0) //CMake
         {
             cout<<"Собрано с помощью CMake"<<"\n";
+            os.cmake_libs();
             os.cd(os.build_dir);
             cout << os.current_path;
             os.run_command({"make", "-n", "install"},true); 
