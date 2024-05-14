@@ -212,6 +212,7 @@ class Unix : public Os
                     execvp(c,args); //если удачно, то не возвращает управления,если ошибка-то вернет управление
                     cerr << "Не удалось выполнить комманду exec\n"; 
                     _exit(42);
+                    break;
                        
                 }
                 default: //pid>0 родительский процесс
@@ -233,6 +234,7 @@ class Unix : public Os
                     if(WEXITSTATUS(status) == 0) child_status = 0;
                     else child_status = 1;
                     return_code = return_code || child_status; 
+                    break;
                 }   
             }
         #endif
