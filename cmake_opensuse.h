@@ -152,11 +152,10 @@ int run_command_2_os(vector<string> cmd, bool need_admin_rights = false, int *st
 
             char* c = args[0];
                
-            if(execvp(c,args)==-1)
-            {
-                cerr << "Не удалось выполнить комманду exec\n"; 
-                _exit(42);
-            }    
+            execvp(c,args);
+            cerr << "Не удалось выполнить комманду exec\n"; 
+            _exit(42);
+            break;    
         }
         default: //pid>0 родительский процесс
         {
@@ -210,6 +209,7 @@ int run_command_2_os(vector<string> cmd, bool need_admin_rights = false, int *st
             if(WEXITSTATUS(status) == 0) child_status = 0;
             else child_status = 1;
             return_code = return_code || child_status; 
+            break;
         }   
     }
 #endif
