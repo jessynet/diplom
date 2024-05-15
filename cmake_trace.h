@@ -17,7 +17,6 @@ using namespace std;
 namespace fs = std::experimental::filesystem;
 using json = nlohmann::json;
 
-
 fs::path path_to_package_lib = "";
 fs::path path_reply = "";
 string name_archive;
@@ -237,6 +236,7 @@ void trace()
 
                     }
                     cout << "Установка пакета " << package_name << endl;
+                    libname_os = package_name;
 
                     if(run_command_trace({"zypper","install", package_name},true) != 0)
                     {
