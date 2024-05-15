@@ -1,3 +1,5 @@
+#ifndef CMAKE_OPENSUSE_H
+#define CMAKE_OPENSUSE_H
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -68,12 +70,10 @@ int run_command_1_os(vector<string> cmd, bool need_admin_rights = false, int *st
             args[cmd.size()] = NULL;
 
             char* c = args[0];
-               
             execvp(c,args);
             cerr << "Не удалось выполнить комманду exec\n"; 
             _exit(42);
-    
-            break;   
+            break;    
         }
         default: //pid>0 родительский процесс
         {
@@ -104,6 +104,7 @@ int run_command_1_os(vector<string> cmd, bool need_admin_rights = false, int *st
             else child_status = 1;
             return_code = return_code || child_status; 
             break;
+
         }   
     }
 #endif
@@ -317,7 +318,7 @@ int find_install_package_1_os(int* stdout_pipe, int code_funct)
     free(line);
 
     if(!found_package)
-        cout << "Не удалось найти пакет, который предоставляет библиотеку " << libname_os << endl; //не прерывается программа ибо может собраться пакет и без этой библиотеки
+        cout << "Не удалось найти пакет, который предоставляет библиотеку/пакет " << libname_os << endl; //не прерывается программа ибо может собраться пакет и без этой библиотеки
 
     if(install) return 0;
     else return 1;
@@ -453,7 +454,7 @@ void find_lib_os(vector<string> libs, vector<string> libsPath)
             {
                 cout << "Библиотека " << l << " не найдена" << endl;
                 if(run_command_1_os({"zypper", "se", "--provides", lib_name}, false, mypipe, true) != 0)
-                    cout << "Не удалось найти пакет, который предоставляет библиотеку " << l << endl;               
+                    cout << "Не удалось найти пакет, который предоставляет библиотек/пакет " << l << endl;               
             }
 
             continue;
@@ -893,3 +894,5 @@ void find_depend_opensuse(fs::path path_to_reply, fs::path buildDir)
     libs_os(mask1, path_to_reply, buildDir);
 
 }
+
+#endif 
