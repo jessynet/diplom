@@ -1,3 +1,5 @@
+#ifndef CMAKE_FREEBSD_H
+#define CMAKE_FREEBSD_H
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -71,8 +73,8 @@ int run_command_1_fb(vector<string> cmd, bool need_admin_rights = false, int *st
                
             execvp(c,args);
             cerr << "Не удалось выполнить комманду exec\n"; 
-            _exit(42);   
-            break;
+            _exit(42);
+            break;    
         }
         default: //pid>0 родительский процесс
         {
@@ -93,7 +95,7 @@ int run_command_1_fb(vector<string> cmd, bool need_admin_rights = false, int *st
             if(WEXITSTATUS(status) == 0) child_status = 0;
             else child_status = 1;
             return_code = return_code || child_status; 
-            break;
+
         }   
     }
 #endif
@@ -652,3 +654,5 @@ void find_depend_freebsd(fs::path path_to_reply, fs::path buildDir)
     libs_fb(mask1, path_to_reply, buildDir);
 
 }
+
+#endif
