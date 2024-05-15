@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include "cmake_trace.h"
 #include "cmake_opensuse.h"
 #include "cmake_ubuntu.h"
 #include "cmake_freebsd.h"
@@ -15,10 +16,6 @@
 using namespace std;
 namespace fs = std::experimental::filesystem;
 
-
-
-
-//test
 
 /*Различие в том, где препроцессор будет начинать поиск файла some.h. Если использовать директиву #include "some.h", то 
 сначала будут просмотрены локальные (по отношению к проекту) папки включения файлов. Если использовать #include <some.h>,
@@ -42,6 +39,7 @@ class Os
         vector <string> phpize;
         string template_incorrect_path; //указатель на функцию из .h
         void (*ptrFunc)(fs::path,fs::path);
+        void (*ptrFunc1)(fs::path,fs::path, fs::path,string);
 
         virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false) = 0;
 
@@ -66,6 +64,8 @@ class Os
         virtual int assembly_gem() = 0;
 
         virtual void cmake_libs() = 0;
+
+        virtual void cmake_trace() = 0;
 
         virtual int assembly_perl_build() = 0;
 
@@ -164,21 +164,13 @@ class Unix : public Os
         }  
 
         bool is_admin() {
-        #ifdef WIN32
-            // TODO
-            return true;
-        #else
+        
             return getuid() == 0; //краткая запись if(getuid()==0) {return true;} else {return false;}
-        #endif
+        
         }
 
         virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false) 
         {
-        #ifdef WIN32
-            // CreateProcess()
-            // CreateProcessAsUser()
-            // ShellExecute...
-        #else
             if (need_admin_rights && !is_admin())
                 cmd.insert(cmd.begin(), "sudo");
             int return_code = 0;
@@ -241,7 +233,7 @@ class Unix : public Os
                     break;
                 }   
             }
-        #endif
+        
             return return_code;
         } 
         
@@ -251,7 +243,7 @@ class Unix : public Os
             run_command({"gem", "install",  path_to_archive},true);    
         }
 
-        virtual void installation(const vector <string> packages)
+        virtual void installation(const vector <string> packages) //программа ставится из одноименного пакета 
         {
             for(auto i : packages)
             {
@@ -431,6 +423,21 @@ class Unix : public Os
             ptrFunc(path_to_reply, build_dir);
         }
 
+        virtual void cmake_trace()
+        {
+            fs::path path_to_reply = build_dir;
+            path_to_reply /= ".cmake";
+            path_to_reply /= "api";
+            path_to_reply /= "v1";
+            path_to_reply /= "reply";
+
+            fs::path path_to_package = "/tmp/archives/" + archive_name;
+
+
+            ptrFunc1(unpack_dir,path_to_package,path_to_reply, archive_name);
+
+        }
+
 
 };
 
@@ -456,11 +463,6 @@ class FreeBsd : public Unix
 
         }
 
-        virtual int assembly_autotools()
-        {
-            return Unix::assembly_autotools();
-        }
-
         virtual int assembly_perl_build()
         {
             perl_package_build = "p5-App-cpanminus";
@@ -482,43 +484,12 @@ class FreeBsd : public Unix
             return Unix::assembly_php();
         }
 
-        virtual int assembly_gem()
-        {
-            return Unix::assembly_gem();
-        }
-
         virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false)
         {
             return Unix::run_command(cmd, need_admin_rights, stdout_pipe, hide_stderr);
 
         }
-
-        virtual void installation(const vector <string> packages)
-        {
-            Unix::installation(packages);
-        }
-
-        virtual void options()
-        {
-            Unix::options();
-        }
-
-        virtual void cd(string path)
-        {
-            Unix::cd(path);
-        }
-
-        virtual string find_file(regex mask, fs::path pathToDir, bool return_name_file = false)
-        {
-            return Unix::find_file(mask,pathToDir, return_name_file);
-
-        }
-
-        virtual int gemspec_exists(string path)
-        {
-            return Unix::gemspec_exists(path);
-        }
-
+    
         virtual void install_gems()
         {
             Unix::installation({"rubygem-grpc"});
@@ -553,79 +524,6 @@ class Linux : public Unix
             return os_name;
         }
 
-        virtual void cmake_libs()
-        {
-            Unix::cmake_libs();
-        }
-
-
-
-        virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false)
-        {
-            return Unix::run_command(cmd, need_admin_rights, stdout_pipe, hide_stderr);
-
-        }
-
-        virtual void installation(const vector <string> packages)
-        {
-            Unix::installation(packages);
-        }
-
-        virtual void options()
-        {
-            Unix::options();
-        }
-
-        virtual void cd(string path)
-        {
-            Unix::cd(path);
-        }
-
-        virtual string find_file(regex mask, fs::path pathToDir, bool return_name_file = false)
-        {
-            return Unix::find_file(mask,pathToDir, return_name_file);
-
-        }
-
-        virtual int assembly_cmake()
-        {
-            return Unix::assembly_cmake();
-        }
-
-        virtual int assembly_autotools()
-        {
-            return Unix::assembly_autotools();
-        }
-
-        virtual int assembly_gem()
-        {
-            return Unix::assembly_gem();
-        }
-
-        virtual int assembly_perl_build()
-        {
-            return Unix::assembly_perl_build();
-        }
-
-        virtual int assembly_perl_make()
-        {
-            return Unix::assembly_perl_make();
-        }
-
-        virtual int assembly_php()
-        {
-            return Unix::assembly_php();
-        }
-
-        virtual int gemspec_exists(string path)
-        {
-            return Unix::gemspec_exists(path);
-        }
-
-        virtual void install_gems()
-        {
-            Unix::install_gems();
-        }
 
 };
 
@@ -640,85 +538,45 @@ class OpenSuse : public Linux
         virtual int assembly_perl_build()
         {
             perl_package_build = "perl-App-cpanminus";
-            Linux::installation({"perl"});
-            return Linux::assembly_perl_build();
+            Unix::installation({"perl"});
+            return Unix::assembly_perl_build();
         }
 
         virtual int assembly_perl_make()
         {
-            Linux::installation({"perl"});
+            Unix::installation({"perl"});
             perl_package_make = "libtirpc-devel";
-            Linux::installation({perl_package_make});
-            return Linux::assembly_perl_make();
+            Unix::installation({perl_package_make});
+            return Unix::assembly_perl_make();
 
         }
 
         virtual int assembly_php()
         {
-            Linux::installation({"php7", "php7-devel", "php7-pecl", "php7-pear"});
+            Unix::installation({"php7", "php7-devel", "php7-pecl", "php7-pear"});
             phpize = {"/usr/bin/phpize"};
-            return Linux::assembly_php();;
+            return Unix::assembly_php();;
         }
-
-        virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false)
-        {
-            return Linux::run_command(cmd, need_admin_rights, stdout_pipe, hide_stderr);
-
-        }
-
-        virtual void installation(const vector <string> packages)
-        {
-            Linux::installation(packages);
-        }
-
-        virtual void options()
-        {
-            Linux::options();
-        }
-
-        virtual void cd(string path)
-        {
-            Linux::cd(path);
-        }
-
-        virtual string find_file(regex mask, fs::path pathToDir, bool return_name_file = false)
-        {
-            return Linux::find_file(mask,pathToDir, return_name_file);
-
-        }
+    
 
         virtual void cmake_libs()
         {
             ptrFunc = find_depend_opensuse;
-            Linux::cmake_libs();
+            Unix::cmake_libs();
 
         }
 
-
-        virtual int assembly_cmake()
+        virtual void cmake_trace()
         {
-            return Linux::assembly_cmake();
-        }
+            ptrFunc1 = opensuse_trace;
+            Unix::cmake_trace();        
 
-        virtual int assembly_autotools()
-        {
-            return Linux::assembly_autotools();
-        }
-
-        virtual int assembly_gem()
-        {
-            return Linux::assembly_gem();
-        }
-
-        virtual int gemspec_exists (string path)
-        {
-            return Linux::gemspec_exists(path);
         }
 
         virtual void install_gems()
         {
-            Linux::installation({"ruby-devel"});
-            Linux::install_gems();
+            Unix::installation({"ruby-devel"});
+            Unix::install_gems();
         }
 
 };
@@ -734,14 +592,14 @@ class Ubuntu : public Linux
         virtual void cmake_libs()
         {
             ptrFunc = find_depend_ubuntu;
-            Linux::cmake_libs();
+            Unix::cmake_libs();
 
         }
 
         virtual int assembly_cmake()
         {
-            //installation({"libncurses-dev", "libreadline-dev", "libbsd-dev"});
-            return Linux::assembly_cmake();
+            installation({"libncurses-dev", "libreadline-dev", "libbsd-dev"});
+            return Unix::assembly_cmake();
 
         }
 
@@ -749,73 +607,31 @@ class Ubuntu : public Linux
         {
 
             perl_package_build = "cpanminus";
-            Linux::installation({"perl"});
-            return Linux::assembly_perl_build();
+            Unix::installation({"perl"});
+            return Unix::assembly_perl_build();
         }
 
         virtual int assembly_perl_make()
         {
-            Linux::installation({"perl"});
+            Unix::installation({"perl"});
             perl_package_make = "libtirpc-dev";
-            Linux::installation({perl_package_make});
-            return Linux::assembly_perl_make();
+            Unix::installation({perl_package_make});
+            return Unix::assembly_perl_make();
 
         }
 
         virtual int assembly_php()
         {
             phpize = {"/usr/bin/phpize"};
-            Linux::installation({"php", "php-dev", "php-pear"});
-            return Linux::assembly_php();
+            Unix::installation({"php", "php-dev", "php-pear"});
+            return Unix::assembly_php();
 
-        }
-
-        virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false)
-        {
-            return Linux::run_command(cmd, need_admin_rights, stdout_pipe, hide_stderr);
-
-        }
-
-        virtual void installation(const vector <string> packages)
-        {
-            Linux::installation(packages);
-        }
-
-        virtual void options()
-        {
-            Linux::options();
-        }
-
-        virtual void cd(string path)
-        {
-            Linux::cd(path);
-        }
-
-        virtual string find_file(regex mask, fs::path pathToDir, bool return_name_file = false)
-        {
-            return Linux::find_file(mask,pathToDir, return_name_file);
-
-        }
-
-        virtual int assembly_autotools()
-        {
-            return Linux::assembly_autotools();
-        }
-
-        virtual int assembly_gem()
-        {
-            return Linux::assembly_gem();
-        }
-
-        virtual int gemspec_exists(string path)
-        {
-            return Linux::gemspec_exists(path);
         }
 
         virtual void install_gems()
         {
-            Linux::installation({"ruby-dev"});
-            Linux::install_gems();
+            Unix::installation({"ruby-dev"});
+            Unix::install_gems();
         }
 
 };
@@ -885,6 +701,7 @@ void toDo(Os &os)
         {
             cout<<"Собрано с помощью CMake"<<"\n";
             os.cmake_libs();
+            os.cmake_trace();
             os.cd(os.build_dir);
             cout << os.current_path;
             os.run_command({"make", "-n", "install"},true); 
