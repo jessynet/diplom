@@ -427,6 +427,7 @@ class Unix : public Os
             ptrFunc(path_to_reply, build_dir);
         }
 
+
 };
 
 class FreeBsd : public Unix
@@ -520,6 +521,7 @@ class FreeBsd : public Unix
             Unix::install_gems();
         }
 
+
 };
 
 class Linux : public Unix
@@ -551,6 +553,8 @@ class Linux : public Unix
         {
             Unix::cmake_libs();
         }
+
+
 
         virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false)
         {
@@ -685,6 +689,7 @@ class OpenSuse : public Linux
             Linux::cmake_libs();
 
         }
+
 
         virtual int assembly_cmake()
         {
