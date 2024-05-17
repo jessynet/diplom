@@ -8,7 +8,9 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <fcntl.h>
-#include "cmake_trace.h"
+#include "cmake_trace_opensuse.h"
+#include "cmake_trace_freebsd.h"
+#include "cmake_trace_ubuntu.h"
 #include "cmake_opensuse.h"
 #include "cmake_ubuntu.h"
 #include "cmake_freebsd.h"
@@ -463,6 +465,13 @@ class FreeBsd : public Unix
 
         }
 
+        virtual void cmake_trace()
+	    {
+
+		    ptrFunc1 = freebsd_trace;
+		    Unix::cmake_trace();
+	    }
+
         virtual int assembly_perl_build()
         {
             perl_package_build = "p5-App-cpanminus";
@@ -633,6 +642,14 @@ class Ubuntu : public Linux
             Unix::installation({"ruby-dev"});
             Unix::install_gems();
         }
+
+        virtual void cmake_trace()
+        {
+            ptrFunc1 = ubuntu_trace;
+            Unix::cmake_trace();        
+
+        }
+
 
 };
 
