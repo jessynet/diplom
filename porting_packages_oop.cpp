@@ -466,11 +466,11 @@ class FreeBsd : public Unix
         }
 
         virtual void cmake_trace()
-	    {
+	{
 
-		    ptrFunc1 = freebsd_trace;
-		    Unix::cmake_trace();
-	    }
+	    ptrFunc1 = freebsd_trace;
+	    Unix::cmake_trace();
+	}
 
         virtual int assembly_perl_build()
         {
