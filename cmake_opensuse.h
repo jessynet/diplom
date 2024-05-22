@@ -240,6 +240,7 @@ int find_install_package_1_os(int* stdout_pipe, int code_funct)
             int c = 0;
             int ind1 = 0;
             int ind2 = 0;
+            
                             
             for(int i = 0; i < linelen; i++)
             {
@@ -274,6 +275,7 @@ int find_install_package_1_os(int* stdout_pipe, int code_funct)
                         install = true;
                         break; //пока ставится первый найденный пакет
                     }
+                    else cout << "Не удалось установить предоставляющий библиотеку пакет " << name_package_for_lib << endl;
                     
                 }
             }
@@ -296,6 +298,7 @@ int find_install_package_1_os(int* stdout_pipe, int code_funct)
                             install = true;
                             break;
                         }
+                        else cout << "Не удалось установить предоставляющий библиотеку пакет " << name_package_for_lib << endl;
 
                     }
                 }
