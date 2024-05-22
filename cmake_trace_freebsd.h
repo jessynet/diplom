@@ -21,14 +21,28 @@ fs::path path_to_package_lib_fb = "";
 fs::path path_reply_fb = "";
 string name_archive_fb;
 
-void find_install_package_for_lib_fb(fs::path path, string name_so, string name_a, bool *found_lib = nullptr)
+int find_install_package_for_lib_fb(fs::path path, string name_so, string name_a, bool *found_lib = nullptr,bool library_not_found_anywhere = false)
 {
     libname_fb = path/name_so;
     int mypipe[2];
+    int return_code_fb = 0;
     if(pipe(mypipe))
     {
         perror("Ошибка канала");
         exit(1);
+    }
+
+    if(library_not_found_anywhere)
+    {
+        return_code_fb = run_command_1_fb({"pkg", "provides",name_so}, false, mypipe);
+        if(return_code_fb) 
+        {
+            pipe(mypipe);
+            libname_fb = path/name_a;
+            return_code_fb = run_command_1_fb({"pkg", "provides", name_a}, false, mypipe);
+        }
+        return return_code_fb;
+
     }
     if(fs::exists(path/name_so))
     {
@@ -41,7 +55,6 @@ void find_install_package_for_lib_fb(fs::path path, string name_so, string name_
     else
     {
         cout << "Библиотека " << path/name_so << " не найдена" << endl;
-        run_command_1_fb({"pkg", "provides",name_so}, false, mypipe);
 
         libname_fb = path/name_a;
         if(pipe(mypipe))
@@ -60,11 +73,13 @@ void find_install_package_for_lib_fb(fs::path path, string name_so, string name_
         else
         {
             cout << "Библиотека " << path/name_a << " не найдена" << endl;
-            run_command_1_fb({"pkg", "provides", name_a}, false, mypipe);
+            return_code_fb = 1;
 
         }
 
     }
+
+    return return_code_fb;
 
 }
 
@@ -336,7 +351,8 @@ void trace_fb()
                                 tmp_path = "";
                         }
                         cout << endl;
-                        names.push_back(tmp_path);
+                        if(tmp_path != "")
+                            paths.push_back(tmp_path);
 
                     }
 
@@ -356,38 +372,58 @@ void trace_fb()
                             string l_name_a = "lib" + i + ".a"; 
                             if(flag) //не использовать дефолтные пути
                             {
-                                for(auto j : paths)
-                                    if(j != "")
-                                        find_install_package_for_lib_fb(j, l_name_so, l_name_a);
+                                bool found_lib = false;
+                                if(paths.size() != 0)
+                                {
+                                    cout << "Поиск не осуществляется в дефолтных путях\n";
+                                    for(auto j : paths)
+                                        if(find_install_package_for_lib_fb(j, l_name_so, l_name_a, &found_lib) == 0)
+                                            break;
+                                    if(!found_lib)
+                                    {
+                                        cout << "Библиотека " << i << " не найдена не в одном из путей. Попытка найти ее и доставить в нужный каталог\n";
+                                        for(auto j : paths)
+                                            if(find_install_package_for_lib_fb(j, l_name_so, l_name_a, NULL, true) == 0)
+                                                break;
+
+                                    }
+                                }
+
+                                else cout << "Нет путей (PATHS/HINTS) для поиска библиотеки " << i << endl;
 
                             }
 
                             else
                             {
+                                cout << "Поиск осуществляется в дефолтных путях и в указанных дополнительно, если такие есть\n";
                                 regex mask1(".*(toolchains).*",regex_constants::icase);
                                 vector <string> linkDirs = linkDirectories_fb(mask1, path_reply_fb); //Все каталоги, в которых стандартно ищутся библиотеки
                                 vector <fs::path> toolchainpath;
                                 for(auto p : linkDirs)
                                     toolchainpath.push_back(p);
+                                vector <fs::path> all_paths;
+                                all_paths = toolchainpath;
+
+                                for(const auto& element : paths)
+                                {
+                                    if(element != "") all_paths.push_back(element);
+
+                                }
 
                                 bool found_lib = false;
-                                for(auto j : toolchainpath)
+                                for(auto j : all_paths)
                                 {
-                                    find_install_package_for_lib_fb(j, l_name_so, l_name_a, &found_lib);
+                                    if(find_install_package_for_lib_fb(j, l_name_so, l_name_a, &found_lib) == 0)
+                                        break;
 
                                 }
 
                                 if(!found_lib)
                                 {
-                                    for(auto j : paths)
-                                    {
-                                        if(j != "")
-                                        {
-                                            find_install_package_for_lib_fb(j, l_name_so, l_name_a);
-                                        
-                                        }
-
-                                    }
+                                    cout << "Библиотека " << i << " не найдена не в одном из путей. Попытка найти ее и доставить в нужный каталог\n";
+                                    for(auto j : all_paths)
+                                        if(find_install_package_for_lib_fb(j, l_name_so, l_name_a, NULL, true) == 0)
+                                            break;
 
                                 }
 
