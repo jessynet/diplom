@@ -24,22 +24,16 @@ string libname_ub = "";
 //fd[0] – открыт на чтение, fd[1] – на запись (вспомните STDIN == 0, STDOUT == 1)
 
 bool is_admin_ub() {
-#ifdef WIN32
-    // TODO
-    return true;
-#else
+
     return getuid() == 0; //краткая запись if(getuid()==0) {return true;} else {return false;}
-#endif
+
 }
 
 int find_install_package_1_ub(int* stdout_pipe);
 
-int run_command_1_ub(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr) {
-#ifdef WIN32
-    // CreateProcess()
-    // CreateProcessAsUser()
-    // ShellExecute...
-#else
+int run_command_1_ub(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr) 
+{
+
     if (need_admin_rights && !is_admin_ub())
         cmd.insert(cmd.begin(), "sudo");
     int return_code = 0;
@@ -89,7 +83,7 @@ int run_command_1_ub(vector<string> cmd, bool need_admin_rights = false, int *st
                 
             do {
                 waitpid(pid, &status, 0);
-            } while(!WIFEXITED(status)); // WIFEXITED(status) возвращает истинное значение, если потомок нормально завершился, то есть вызвал exit или _exit, или вернулся из функции main().
+            } while(!WIFEXITED(status) && !WIFSIGNALED(status)); // WIFEXITED(status) возвращает истинное значение, если потомок нормально завершился, то есть вызвал exit или _exit, или вернулся из функции main().
             int child_status;
             if(WEXITSTATUS(status) == 0) child_status = 0;
             else child_status = 1;
@@ -98,7 +92,7 @@ int run_command_1_ub(vector<string> cmd, bool need_admin_rights = false, int *st
 
         }   
     }
-#endif
+
     return return_code;
 }
 
@@ -163,7 +157,7 @@ int find_install_package_1_ub(int* stdout_pipe)
     free(line);
 
     if(!found_package)
-        cout << "Не удалось найти пакет, который предоставляет библиотеку " << libname_ub << endl; //не прерывается программа ибо может собраться пакет и без этой библиотеки
+        cout << "Не удалось найти пакет, который предоставляет библиотеку/пакет " << libname_ub << endl; //не прерывается программа ибо может собраться пакет и без этой библиотеки
 
     if(install) return 0;
     else return 1;
@@ -206,7 +200,7 @@ void find_lib_ub(vector<string> libs, vector<string> libsPath)
                 cout << "Поиск пакета, который предоставляет необходимую библиотеку" << endl;
             }
 
-            run_command_1_ub({"apt-file", "-F", "search", l}, false, mypipe);           
+            run_command_1_ub({"apt-file", "-F", "search", l}, false, mypipe);         
             continue;
         
         }
@@ -268,16 +262,16 @@ void find_lib_ub(vector<string> libs, vector<string> libsPath)
                     {   
                         libname_ub = path_to_lib/so_lib;
 			            cout << "Библиотека " << libname_ub << " найдена" << endl;
-                        run_command_1_ub({"apt-file", "-F",  "search", path_to_lib/so_lib}, false, mypipe);
-                        found = true;
+                        if(run_command_1_ub({"apt-file", "-F",  "search", path_to_lib/so_lib}, false, mypipe) == 0)
+                            found = true;
                     }
                     else if(fs::exists(path_to_lib/a_lib))
                     {
                         nl = a_lib;
                         libname_ub = path_to_lib/a_lib;
                         cout << "Библиотека " << libname_ub << " найдена" << endl;
-                        run_command_1_ub({"apt-file", "-F", "search", path_to_lib/a_lib}, false, mypipe);
-                        found = true;
+                        if(run_command_1_ub({"apt-file", "-F", "search", path_to_lib/a_lib}, false, mypipe) == 0)
+                            found = true;
                       
                     }
 
@@ -290,8 +284,8 @@ void find_lib_ub(vector<string> libs, vector<string> libsPath)
                     if(fs::exists(path_to_lib/so_lib))
                     {
                         cout << "Библиотека " << libname_ub << " найдена" << endl;
-                        run_command_1_ub({"apt-file", "-F", "search", path_to_lib/so_lib}, false, mypipe);
-                        found = true;
+                        if(run_command_1_ub({"apt-file", "-F", "search", path_to_lib/so_lib}, false, mypipe) == 0)
+                            found = true;
                       
                     }
                 }
@@ -303,8 +297,8 @@ void find_lib_ub(vector<string> libs, vector<string> libsPath)
                     if(fs::exists(path_to_lib/a_lib))
                     {
                         cout << "Библиотека " << libname_ub << " найдена" << endl;
-                        run_command_1_ub({"apt-file", "-F", "search", path_to_lib/a_lib}, false, mypipe);
-                        found = true;
+                        if(run_command_1_ub({"apt-file", "-F", "search", path_to_lib/a_lib}, false, mypipe) == 0)
+                            found = true;
                         
                     }    
 
