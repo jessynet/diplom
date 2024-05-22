@@ -26,8 +26,7 @@ namespace fs = std::experimental::filesystem;
 
 class Os
 {
-    public:
-
+    protected:
         string current_path = fs::current_path();
         fs::path unpack_dir;
         fs::path build_dir;
@@ -40,8 +39,10 @@ class Os
         string perl_package_make;
         vector <string> phpize;
         string template_incorrect_path; //указатель на функцию из .h
-        void (*ptrFunc)(fs::path,fs::path);
-        void (*ptrFunc1)(fs::path,fs::path, fs::path,string);
+        void (*ptr_cmake_depend)(fs::path,fs::path);
+        void (*ptr_cmake_trace)(fs::path,fs::path, fs::path,string);
+
+    public:
 
         virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false) = 0;
 
@@ -49,7 +50,7 @@ class Os
 
         void installation(string package) {vector<string> pkgs = {package}; installation(pkgs); }
 
-        virtual void options() = 0;
+        virtual void build_unpack_dir() = 0;
 
         virtual void install_gems() = 0;
 
@@ -75,7 +76,18 @@ class Os
 
         virtual int assembly_php() = 0;
 
-        int get_line(int* stdout_pipe)
+        virtual int return_code_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false) = 0;
+
+        string get_archive_type(){return type_archive;}
+        fs::path get_unpack_dir(){return unpack_dir;}
+        fs::path get_build_dir(){return build_dir;}
+        fs::path get_current_path(){return current_path;}
+        fs::path get_path_to_archive(){return path_to_archive;}
+        fs::path get_dirBuild(){return dirBuild;}
+        fs::path get_archive_name(){return archive_name;}
+        void set_path_to_archive(string path){path_to_archive = path;}
+        void set_install_command(vector <string> cmd_install){install = cmd_install;}
+        int check_tar(int* stdout_pipe)
         {
             int return_code = 0;
             close(stdout_pipe[1]);
@@ -123,7 +135,7 @@ class Unix : public Os
             return result;
         }
 
-        virtual void options()
+        virtual void build_unpack_dir()
         {
             dirBuild = "/tmp/archives";
             template_incorrect_path = "^(.*/)?\\.\\./";
@@ -217,7 +229,7 @@ class Unix : public Os
                 {
                     int status;
                         
-                    if (stdout_pipe) return_code = Os::get_line(stdout_pipe);
+                    if (stdout_pipe) return_code = Os::check_tar(stdout_pipe);
         
                     //Если порожденный процесс, заданный параметром pid, к моменту системного вызова находится в 
                     //состоянии закончил исполнение, системный вызов возвращается немедленно без блокирования текущего процесса.   
@@ -238,11 +250,22 @@ class Unix : public Os
         
             return return_code;
         } 
-        
+
+        virtual int return_code_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false)
+        {
+            if(run_command(cmd, need_admin_rights, stdout_pipe, hide_stderr) != 0) 
+            {
+                cerr << "Ошибка выполнения команды\n";
+                exit(1);
+            }
+            else return 0;
+
+        }
+ 
         virtual void install_gems()
         {
-            run_command({"cp", "-r", path_to_archive ,build_dir});
-            run_command({"gem", "install",  path_to_archive},true);    
+            return_code_command({"cp", "-r", path_to_archive ,build_dir});
+            return_code_command({"gem", "install",  path_to_archive},true);    
         }
 
         virtual void installation(const vector <string> packages) //программа ставится из одноименного пакета 
@@ -291,13 +314,13 @@ class Unix : public Os
             fs::create_directories(tmp);
 
             cd(tmp);
-            run_command({"touch", "codemodel-v2"});
-            run_command({"touch", "toolchains-v1"});
+            return_code_command({"touch", "codemodel-v2"});
+            return_code_command({"touch", "toolchains-v1"});
 
             cd(build_dir);
             
-            sum_code = sum_code || run_command({"cmake", unpack_dir}); 
-            sum_code = sum_code || run_command({"make"});
+            sum_code = sum_code || return_code_command({"cmake", unpack_dir}); 
+            sum_code = sum_code || return_code_command({"make"});
              
             cd(current_path);
             return sum_code;
@@ -310,8 +333,8 @@ class Unix : public Os
             installation({"autoconf"});
             installation({"automake"});
             cd(unpack_dir);
-            sum_code = sum_code || run_command({"./configure"});
-            sum_code = sum_code || run_command({"make"});
+            sum_code = sum_code || return_code_command({"./configure"});
+            sum_code = sum_code || return_code_command({"make"});
             const auto copyOptions = fs::copy_options::recursive;
             fs::copy(unpack_dir, build_dir, copyOptions);
             cd(current_path);
@@ -359,7 +382,7 @@ class Unix : public Os
             regex mask1(".*(.gemspec)",regex_constants::icase);
             regex mask2(".*(.gem)",regex_constants::icase);
             string gemspec_path = find_file(mask1, unpack_dir);
-            sum_code = sum_code || run_command({"gem","build",gemspec_path});
+            sum_code = sum_code || return_code_command({"gem","build",gemspec_path});
             string gem_path = find_file(mask2, unpack_dir);
             const auto copyOptions = fs::copy_options::recursive;
             fs::copy(gem_path, build_dir, copyOptions);
@@ -370,12 +393,12 @@ class Unix : public Os
         virtual int assembly_perl_build()
         {
             int sum_code = 0;
-            run_command({"cpan", "Module::Build"},true);
+            return_code_command({"cpan", "Module::Build"},true);
             installation({perl_package_build});
             cd(unpack_dir);
-            sum_code = sum_code || run_command({"cpanm", "--installdeps", "."},true);
-            sum_code = sum_code || run_command({"perl", "Build.PL"},true);
-            sum_code = sum_code || run_command({"./Build"},true);
+            sum_code = sum_code || return_code_command({"cpanm", "--installdeps", "."},true);
+            sum_code = sum_code || return_code_command({"perl", "Build.PL"},true);
+            sum_code = sum_code || return_code_command({"./Build"},true);
             const auto copyOptions = fs::copy_options::recursive;
             fs::copy(unpack_dir, build_dir, copyOptions);
             cd(current_path);
@@ -388,8 +411,8 @@ class Unix : public Os
             installation({"make"});
             int sum_code = 0;
             cd(unpack_dir);
-            sum_code = sum_code || run_command({"perl", "./Makefile.PL"});
-            sum_code = sum_code || run_command({"make"});
+            sum_code = sum_code || return_code_command({"perl", "./Makefile.PL"});
+            sum_code = sum_code || return_code_command({"make"});
 
             const auto copyOptions = fs::copy_options::recursive;
             fs::copy(unpack_dir, build_dir, copyOptions);
@@ -404,9 +427,9 @@ class Unix : public Os
             int rc;
             int sum_code = 0;
             cd(unpack_dir);;
-            sum_code = sum_code || run_command(phpize);
-            sum_code = sum_code || run_command({"./configure"});
-            sum_code = sum_code || run_command({"make"});
+            sum_code = sum_code || return_code_command(phpize);
+            sum_code = sum_code || return_code_command({"./configure"});
+            sum_code = sum_code || return_code_command({"make"});
 
             const auto copyOptions = fs::copy_options::recursive;
             fs::copy(unpack_dir, build_dir, copyOptions);
@@ -422,7 +445,7 @@ class Unix : public Os
             path_to_reply /= "api";
             path_to_reply /= "v1";
             path_to_reply /= "reply";
-            ptrFunc(path_to_reply, build_dir);
+            ptr_cmake_depend(path_to_reply, build_dir);
         }
 
         virtual void cmake_trace()
@@ -436,7 +459,7 @@ class Unix : public Os
             fs::path path_to_package = "/tmp/archives/" + archive_name;
 
 
-            ptrFunc1(unpack_dir,path_to_package,path_to_reply, archive_name);
+            ptr_cmake_trace(unpack_dir,path_to_package,path_to_reply, archive_name);
 
         }
 
@@ -448,12 +471,12 @@ class FreeBsd : public Unix
     public:
         FreeBsd()
         {
-            cout << "Это FreeBSD!\n";
+            cerr << "FreeBSD!\n";
         }
 
         virtual void cmake_libs()
         {
-            ptrFunc = find_depend_freebsd;
+            ptr_cmake_depend = find_depend_freebsd;
             Unix::cmake_libs();
 
         }
@@ -466,11 +489,11 @@ class FreeBsd : public Unix
         }
 
         virtual void cmake_trace()
-	{
+	    {
 
-	    ptrFunc1 = freebsd_trace;
-	    Unix::cmake_trace();
-	}
+		    ptr_cmake_trace = freebsd_trace;
+		    Unix::cmake_trace();
+	    }
 
         virtual int assembly_perl_build()
         {
@@ -491,12 +514,6 @@ class FreeBsd : public Unix
             phpize = {"/usr/local/bin/phpize"};
             Unix::installation({"php83", "php83-pear", "php83-session", "php83-gd"});
             return Unix::assembly_php();
-        }
-
-        virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false)
-        {
-            return Unix::run_command(cmd, need_admin_rights, stdout_pipe, hide_stderr);
-
         }
     
         virtual void install_gems()
@@ -541,7 +558,7 @@ class OpenSuse : public Linux
     public:
         OpenSuse()
         {
-            cout << "Это OpenSuse!\n";
+            cerr << "OpenSuse!\n";
         }
 
         virtual int assembly_perl_build()
@@ -570,14 +587,14 @@ class OpenSuse : public Linux
 
         virtual void cmake_libs()
         {
-            ptrFunc = find_depend_opensuse;
+            ptr_cmake_depend = find_depend_opensuse;
             Unix::cmake_libs();
 
         }
 
         virtual void cmake_trace()
         {
-            ptrFunc1 = opensuse_trace;
+            ptr_cmake_trace = opensuse_trace;
             Unix::cmake_trace();        
 
         }
@@ -595,12 +612,12 @@ class Ubuntu : public Linux
     public:
         Ubuntu()
         {
-            cout << "Это Ubuntu!\n";
+            cerr << "Ubuntu!\n";
         }
 
         virtual void cmake_libs()
         {
-            ptrFunc = find_depend_ubuntu;
+            ptr_cmake_depend = find_depend_ubuntu;
             Unix::cmake_libs();
 
         }
@@ -645,7 +662,7 @@ class Ubuntu : public Linux
 
         virtual void cmake_trace()
         {
-            ptrFunc1 = ubuntu_trace;
+            ptr_cmake_trace = ubuntu_trace;
             Unix::cmake_trace();        
 
         }
@@ -656,7 +673,7 @@ class Ubuntu : public Linux
 
 void toDo(Os &os)
 {
-    os.options();
+    os.build_unpack_dir();
     vector<string> unpack_cmd;
     enum archiver
     {
@@ -664,25 +681,25 @@ void toDo(Os &os)
         gem
     };
     int archiver = tar;
-    if(os.type_archive == ".tar")
+    if(os.get_archive_type() == ".tar")
     {
         unpack_cmd = {"tar", "-xvf"};     
     }
-    else if(os.type_archive == ".tar.bz2" || os.type_archive == ".tar.bzip2" || os.type_archive == ".tb2" || os.type_archive == ".tbz")
+    else if(os.get_archive_type() == ".tar.bz2" || os.get_archive_type() == ".tar.bzip2" || os.get_archive_type() == ".tb2" || os.get_archive_type() == ".tbz")
     {
         unpack_cmd = {"tar", "-xvjf"}; 
     }
-    else if(os.type_archive == ".tar.xz" || os.type_archive == ".txz")
+    else if(os.get_archive_type() == ".tar.xz" || os.get_archive_type() == ".txz")
     {
         unpack_cmd = {"tar", "-xvJf"};
 
     }
-    else if(os.type_archive == ".tar.gz" || os.type_archive == ".tgz")
+    else if(os.get_archive_type() == ".tar.gz" || os.get_archive_type() == ".tgz")
     {
         unpack_cmd = {"tar", "-xvzf"};
 
     }
-    else if(os.type_archive == ".gem")
+    else if(os.get_archive_type() == ".gem")
     {
         os.installation("ruby");
         os.install_gems();
@@ -698,7 +715,7 @@ void toDo(Os &os)
             perror("Ошибка канала");
             exit(1);
         }
-        vector<string> cmd = {"tar", "-tf", os.path_to_archive};
+        vector<string> cmd = {"tar", "-tf", os.get_path_to_archive()};
         //флаг -c говорит о том, что команды считываются из строки
         if(os.run_command(cmd,false,mypipe) != 0)
         {
@@ -707,68 +724,68 @@ void toDo(Os &os)
         }
         else
         {   
-            unpack_cmd.push_back(os.path_to_archive);
+            unpack_cmd.push_back(os.get_path_to_archive());
             unpack_cmd.push_back("-C");
-            unpack_cmd.push_back(os.dirBuild/os.archive_name);
-            os.run_command(unpack_cmd);
+            unpack_cmd.push_back(os.get_dirBuild()/os.get_archive_name());
+            os.return_code_command(unpack_cmd);
             cout<<"Архив разархивирован"<<"\n";
         }
 
-        if(fs::exists(os.unpack_dir/"CMakeLists.txt") && os.assembly_cmake() == 0) //CMake
+        if(fs::exists(os.get_unpack_dir()/"CMakeLists.txt") && os.assembly_cmake() == 0) //CMake
         {
             cout<<"Собрано с помощью CMake"<<"\n";
             os.cmake_libs();
             os.cmake_trace();
-            os.cd(os.build_dir);
-            cout << os.current_path;
-            os.run_command({"make", "-n", "install"},true); 
-            os.cd(os.current_path);
+            os.cd(os.get_build_dir());
+            cout << os.get_current_path();
+            os.return_code_command({"make", "-n", "install"},true); 
+            os.cd(os.get_current_path());
         }
-        else if(fs::exists(os.unpack_dir/"configure") && fs::exists(os.unpack_dir/"Makefile.in")  //GNU Autotools
-                && fs::exists(os.unpack_dir/"config.h.in")  && os.assembly_autotools() == 0)
+        else if(fs::exists(os.get_unpack_dir()/"configure") && fs::exists(os.get_unpack_dir()/"Makefile.in")  //GNU Autotools
+                && fs::exists(os.get_unpack_dir()/"config.h.in")  && os.assembly_autotools() == 0)
         {   
             cout<<"Собрано с помощью GNU Autotools"<<"\n";
-            os.cd(os.unpack_dir);
-            os.run_command({"make", "-n", "install"},true); 
-            os.cd(os.current_path);
+            os.cd(os.get_unpack_dir());
+            os.return_code_command({"make", "-n", "install"},true); 
+            os.cd(os.get_unpack_dir());
         }
-        else if(os.gemspec_exists(os.unpack_dir) && os.assembly_gem() == 0) //Ruby тут есть gemspec
+        else if(os.gemspec_exists(os.get_unpack_dir()) && os.assembly_gem() == 0) //Ruby тут есть gemspec
         {
             cout<<"Собрано с помощью gem"<<"\n";
             regex r("(.*)\\.gem$", regex_constants::icase);
-            string tmp_path = os.find_file(r,os.unpack_dir);
-            os.run_command({"gem", "install", tmp_path},true);
+            string tmp_path = os.find_file(r,os.get_unpack_dir());
+            os.return_code_command({"gem", "install", tmp_path},true);
         }
-        else if(fs::exists(os.unpack_dir/"Rakefile") && !os.gemspec_exists(os.unpack_dir)) //Ruby тут нет gemspec
+        else if(fs::exists(os.get_unpack_dir()/"Rakefile") && !os.gemspec_exists(os.get_unpack_dir())) //Ruby тут нет gemspec
         {
-            os.run_command({"gem", "install", "rake", "rake-compiler"},true);
-            os.cd(os.unpack_dir);
-            if(os.run_command({"rake", "--all", "-n"}) == 0) cout<<"Прогон всех шагов завершен успешно"<<"\n";  
-            os.cd(os.current_path);  
+            os.return_code_command({"gem", "install", "rake", "rake-compiler"},true);
+            os.cd(os.get_unpack_dir());
+            if(os.return_code_command({"rake", "--all", "-n"}) == 0) cout<<"Прогон всех шагов завершен успешно"<<"\n";  
+            os.cd(os.get_current_path());  
         }
-        else if(fs::exists(os.unpack_dir/"Build.PL") && os.assembly_perl_build() == 0) //Perl
+        else if(fs::exists(os.get_unpack_dir()/"Build.PL") && os.assembly_perl_build() == 0) //Perl
         {
             cout<<"Собрано с помощью Build и Build.PL"<<"\n";
-            os.cd(os.unpack_dir);
-            os.run_command({"./Build", "install"},true);
-            os.cd(os.current_path);
+            os.cd(os.get_unpack_dir());
+            os.return_code_command({"./Build", "install"},true);
+            os.cd(os.get_current_path());
         }
 
-        else if(fs::exists(os.unpack_dir/"Makefile.PL") && os.assembly_perl_make() == 0) //Perl
+        else if(fs::exists(os.get_unpack_dir()/"Makefile.PL") && os.assembly_perl_make() == 0) //Perl
         {
             cout<<"Собрано с помощью make и Makefile.PL"<<"\n";
-            os.cd(os.unpack_dir);
-            os.run_command({"make", "-n", "install"},true);
-            os.cd(os.current_path);
+            os.cd(os.get_unpack_dir());
+            os.return_code_command({"make", "-n", "install"},true);
+            os.cd(os.get_current_path());
         }
-        else if(fs::exists(os.unpack_dir/"config.m4") && os.assembly_php() == 0) //PHP
+        else if(fs::exists(os.get_unpack_dir()/"config.m4") && os.assembly_php() == 0) //PHP
         {
             cout<<"Собрано с помощью phpize и GNU Autotools"<<"\n";
         
-            os.cd(os.unpack_dir);
-            os.run_command({"make", "-n", "install"},true);
+            os.cd(os.get_unpack_dir());
+            os.return_code_command({"make", "-n", "install"},true);
             
-            string tmp_dir = os.unpack_dir/"modules";
+            string tmp_dir = os.get_unpack_dir()/"modules";
 
             string module;
             regex mask3("(.*)\\.so$", regex_constants::icase);
@@ -800,16 +817,16 @@ string os;
     if(regex_match(os,reg1) == true)
     {   
         OpenSuse distrib;
-        distrib.path_to_archive = argv[1];
-        distrib.install = {"zypper", "install", "-y"};
+        distrib.set_path_to_archive(argv[1]);
+        distrib.set_install_command({"zypper", "install", "-y"}); 
         toDo(distrib);
         
     }
     else if(regex_match(os,reg2) == true)
     {
         Ubuntu distrib;
-        distrib.path_to_archive = argv[1];
-        distrib.install = {"apt", "install", "-y"};
+        distrib.set_path_to_archive(argv[1]);
+        distrib.set_install_command({"apt", "install", "-y"});
         toDo(distrib);
         
     }
@@ -824,8 +841,8 @@ string os;
     if(regex_match(os,reg3) == true) 
     {
         FreeBsd distrib;
-        distrib.install = {"pkg", "install", "-y"};;
-        distrib.path_to_archive = argv[1];
+        distrib.set_install_command({"pkg", "install", "-y"});
+        distrib.set_path_to_archive(argv[1]);
         toDo(distrib);
     }
 
