@@ -24,23 +24,17 @@ string libname_os = "";
 //fd[0] – открыт на чтение, fd[1] – на запись (вспомните STDIN == 0, STDOUT == 1)
 
 bool is_admin_os() {
-#ifdef WIN32
-    // TODO
-    return true;
-#else
+
     return getuid() == 0; //краткая запись if(getuid()==0) {return true;} else {return false;}
-#endif
+
 }
 
 int find_install_package_1_os(int* stdout_pipe, int code_funct);
 int find_install_package_2_os(int* stdout_pipe);
 
-int run_command_1_os(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool not_found_full_path_lib = false, bool checking_existence_lib = false) {
-#ifdef WIN32
-    // CreateProcess()
-    // CreateProcessAsUser()
-    // ShellExecute...
-#else
+int run_command_1_os(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool not_found_full_path_lib = false, bool checking_existence_lib = false) 
+{
+
     if (need_admin_rights && !is_admin_os())
         cmd.insert(cmd.begin(), "sudo");
     int return_code = 0;
@@ -98,7 +92,7 @@ int run_command_1_os(vector<string> cmd, bool need_admin_rights = false, int *st
                 
             do {
                 waitpid(pid, &status, 0);
-            } while(!WIFEXITED(status)); // WIFEXITED(status) возвращает истинное значение, если потомок нормально завершился, то есть вызвал exit или _exit, или вернулся из функции main().
+            } while(!WIFEXITED(status) && !WIFSIGNALED(status)); // WIFEXITED(status) возвращает истинное значение, если потомок нормально завершился, то есть вызвал exit или _exit, или вернулся из функции main().
             int child_status;
             if(WEXITSTATUS(status) == 0) child_status = 0;
             else child_status = 1;
@@ -107,18 +101,14 @@ int run_command_1_os(vector<string> cmd, bool need_admin_rights = false, int *st
 
         }   
     }
-#endif
+
     return return_code;
 }
 
 
 int run_command_2_os(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, string *path = nullptr)
 {
-    #ifdef WIN32
-    // CreateProcess()
-    // CreateProcessAsUser()
-    // ShellExecute...
-#else
+    
     if (need_admin_rights && !is_admin_os())
         cmd.insert(cmd.begin(), "sudo");
     int return_code = 0;
@@ -205,7 +195,7 @@ int run_command_2_os(vector<string> cmd, bool need_admin_rights = false, int *st
                 
             do {
                 waitpid(pid, &status, 0);
-            } while(!WIFEXITED(status)); // WIFEXITED(status) возвращает истинное значение, если потомок нормально завершился, то есть вызвал exit или _exit, или вернулся из функции main().
+            } while(!WIFEXITED(status) && !WIFSIGNALED(status)); // WIFEXITED(status) возвращает истинное значение, если потомок нормально завершился, то есть вызвал exit или _exit, или вернулся из функции main().
             int child_status;
             if(WEXITSTATUS(status) == 0) child_status = 0;
             else child_status = 1;
@@ -213,7 +203,6 @@ int run_command_2_os(vector<string> cmd, bool need_admin_rights = false, int *st
             break;
         }   
     }
-#endif
     return return_code;
 
 }
@@ -302,9 +291,11 @@ int find_install_package_1_os(int* stdout_pipe, int code_funct)
                     if(run_command_1_os({"zypper", "install", "--download-only", "-y", name_package_for_lib},true,mypipe2,true,true) == 0)
                     {
                         found_package = true;
-                        run_command_1_os({"zypper", "install", "-y", name_package_for_lib},true);
-                        install = true;
-                        break;
+                        if(run_command_1_os({"zypper", "install", "-y", name_package_for_lib},true) == 0)
+                        {
+                            install = true;
+                            break;
+                        }
 
                     }
                 }
@@ -520,16 +511,16 @@ void find_lib_os(vector<string> libs, vector<string> libsPath)
                         nl = so_lib;
                         libname_os = path_to_lib/so_lib;
                         cout << "Библиотека " << libname_os << " найдена" << endl;
-                        run_command_1_os({"zypper", "se", "--provides", path_to_lib/so_lib}, false, mypipe);
-                        found = true;
+                        if(run_command_1_os({"zypper", "se", "--provides", path_to_lib/so_lib}, false, mypipe) == 0)
+                            found = true;
                     }
                     else if(fs::exists(path_to_lib/a_lib))
                     {
                         nl = a_lib;
                         libname_os = path_to_lib/a_lib;
                         cout << "Библиотека " << libname_os << " найдена" << endl;
-                        run_command_1_os({"zypper", "se", "--provides", path_to_lib/a_lib}, false, mypipe);
-                        found = true;
+                        if(run_command_1_os({"zypper", "se", "--provides", path_to_lib/a_lib}, false, mypipe) == 0)
+                            found = true;
                       
                     }
 
@@ -542,8 +533,8 @@ void find_lib_os(vector<string> libs, vector<string> libsPath)
                     if(fs::exists(path_to_lib/so_lib))
                     {
                         cout << "Библиотека " << libname_os << " найдена" << endl;
-                        run_command_1_os({"zypper", "se", "--provides", path_to_lib/so_lib}, false, mypipe);
-                        found = true;
+                        if(run_command_1_os({"zypper", "se", "--provides", path_to_lib/so_lib}, false, mypipe) == 0)
+                            found = true;
                       
                     }
                 }
@@ -554,8 +545,8 @@ void find_lib_os(vector<string> libs, vector<string> libsPath)
                     if(fs::exists(path_to_lib/a_lib))
                     {
                         cout << "Библиотека " << libname_os << " найдена" << endl;
-                        run_command_1_os({"zypper", "se", "--provides", path_to_lib/a_lib}, false, mypipe);
-                        found = true;
+                        if(run_command_1_os({"zypper", "se", "--provides", path_to_lib/a_lib}, false, mypipe) == 0)
+                            found = true;
                         
                     }    
 
