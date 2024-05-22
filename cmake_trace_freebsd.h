@@ -41,8 +41,7 @@ void find_install_package_for_lib_fb(fs::path path, string name_so, string name_
     else
     {
         cout << "Библиотека " << path/name_so << " не найдена" << endl;
-        if(run_command_1_fb({"pkg", "provides",name_so}, false, mypipe) != 0)
-            cout << "Не удалось найти пакет, который предоставляет библиотеку " << path/name_so << endl;
+        run_command_1_fb({"pkg", "provides",name_so}, false, mypipe);
 
         libname_fb = path/name_a;
         if(pipe(mypipe))
@@ -61,8 +60,7 @@ void find_install_package_for_lib_fb(fs::path path, string name_so, string name_
         else
         {
             cout << "Библиотека " << path/name_a << " не найдена" << endl;
-            if(run_command_1_fb({"pkg", "provides", name_a}, false, mypipe) != 0)
-            cout << "Не удалось найти пакет, который предоставляет библиотеку " << path/name_a << endl;
+            run_command_1_fb({"pkg", "provides", name_a}, false, mypipe);
 
         }
 
@@ -74,23 +72,15 @@ void find_install_package_for_lib_fb(fs::path path, string name_so, string name_
 void trace_fb();
 
 bool is_admin_trace_fb() {
-#ifdef WIN32
-    // TODO
-    return true;
-#else
     //возвращает идентификатор пользователя для текущего процесса
     //когда программа запускается из под root, то идентификатор пользователя равен 0
     return getuid() == 0; //краткая запись if(getuid()==0) {return true;} else {return false;}
-#endif
+
 }
 
 int run_command_trace_fb(vector <string> cmd, bool need_admin_rights = false, bool first = false)
 {
-#ifdef WIN32
-    // CreateProcess()
-    // CreateProcessAsUser()
-    // ShellExecute...
-#else
+
     if (need_admin_rights && !is_admin_trace_fb())
         cmd.insert(cmd.begin(), "sudo");
     int return_code = 0;
@@ -139,7 +129,7 @@ int run_command_trace_fb(vector <string> cmd, bool need_admin_rights = false, bo
             int status; 
             do {
                 waitpid(pid, &status, 0);
-            } while(!WIFEXITED(status)); // WIFEXITED(status) возвращает истинное значение, если потомок нормально завершился, то есть вызвал exit или _exit, или вернулся из функции main().
+            } while(!WIFEXITED(status) && !WIFSIGNALED(status)); // WIFEXITED(status) возвращает истинное значение, если потомок нормально завершился, то есть вызвал exit или _exit, или вернулся из функции main().
             int child_status;
             if(WEXITSTATUS(status) == 0) child_status = 0;
             else child_status = 1;
@@ -148,7 +138,7 @@ int run_command_trace_fb(vector <string> cmd, bool need_admin_rights = false, bo
 
         }   
     }
-#endif
+
     //cout << fd; // = 3
     if(first) trace_fb();
     
@@ -246,41 +236,7 @@ void trace_fb()
                     }
                     else
                         cout << "Пакет " << package_name << " установлен" << endl; 
-                    /*
-                    find_package(<PackageName> [version] [EXACT] [QUIET] [MODULE]
-                                [REQUIRED] [[COMPONENTS] [components...]]
-                                [OPTIONAL_COMPONENTS components...]
-                                [REGISTRY_VIEW  (64|32|64_32|32_64|HOST|TARGET|BOTH)]
-                                [GLOBAL]
-                                [NO_POLICY_SCOPE]
-                                [BYPASS_PROVIDER])*/
-                    /*
-                    find_package(<PackageName> [version] [EXACT] [QUIET]
-                                [REQUIRED] [[COMPONENTS] [components...]]
-                                [OPTIONAL_COMPONENTS components...]
-                                [CONFIG|NO_MODULE]
-                                [GLOBAL]
-                                [NO_POLICY_SCOPE]
-                                [BYPASS_PROVIDER]
-                                [NAMES name1 [name2 ...]]
-                                [CONFIGS config1 [config2 ...]]
-                                [HINTS path1 [path2 ... ]]
-                                [PATHS path1 [path2 ... ]]
-                                [REGISTRY_VIEW  (64|32|64_32|32_64|HOST|TARGET|BOTH)]
-                                [PATH_SUFFIXES suffix1 [suffix2 ...]]
-                                [NO_DEFAULT_PATH]
-                                [NO_PACKAGE_ROOT_PATH]
-                                [NO_CMAKE_PATH]
-                                [NO_CMAKE_ENVIRONMENT_PATH]
-                                [NO_SYSTEM_ENVIRONMENT_PATH]
-                                [NO_CMAKE_PACKAGE_REGISTRY]
-                                [NO_CMAKE_BUILDS_PATH] # Deprecated; does nothing.
-                                [NO_CMAKE_SYSTEM_PATH]
-                                [NO_CMAKE_INSTALL_PREFIX]
-                                [NO_CMAKE_SYSTEM_PACKAGE_REGISTRY]
-                                [CMAKE_FIND_ROOT_PATH_BOTH |
-                                ONLY_CMAKE_FIND_ROOT_PATH |
-                                NO_CMAKE_FIND_ROOT_PATH])*/
+                   
                 
 
                 }
@@ -292,33 +248,6 @@ void trace_fb()
                     vector <string> paths_lib;
                     //cout << j["args"] << endl;  
                     
-
-                    /*find_library (<VAR> NAMES name PATHS paths... NO_DEFAULT_PATH)
-                        find_library (<VAR> NAMES name)*/
-
-                    /*
-                    find_library (
-                            <VAR>
-                            name | NAMES name1 [name2 ...] [NAMES_PER_DIR]
-                            [HINTS [path | ENV var]... ]
-                            [PATHS [path | ENV var]... ]
-                            [REGISTRY_VIEW (64|32|64_32|32_64|HOST|TARGET|BOTH)]
-                            [PATH_SUFFIXES suffix1 [suffix2 ...]]
-                            [VALIDATOR function]
-                            [DOC "cache documentation string"]
-                            [NO_CACHE]
-                            [REQUIRED]
-                            [NO_DEFAULT_PATH]
-                            [NO_PACKAGE_ROOT_PATH]
-                            [NO_CMAKE_PATH]
-                            [NO_CMAKE_ENVIRONMENT_PATH]
-                            [NO_SYSTEM_ENVIRONMENT_PATH]
-                            [NO_CMAKE_SYSTEM_PATH]
-                            [NO_CMAKE_INSTALL_PREFIX]
-                            [CMAKE_FIND_ROOT_PATH_BOTH |
-                            ONLY_CMAKE_FIND_ROOT_PATH |
-                            NO_CMAKE_FIND_ROOT_PATH]
-                        )*/
 
                     if(j["args"][1] == "NAMES")
                     {
