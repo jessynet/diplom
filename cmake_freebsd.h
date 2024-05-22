@@ -25,22 +25,16 @@ string libname_fb = "";
 //fd[0] – открыт на чтение, fd[1] – на запись (вспомните STDIN == 0, STDOUT == 1)
 
 bool is_admin_fb() {
-#ifdef WIN32
-    // TODO
-    return true;
-#else
+
     return getuid() == 0; //краткая запись if(getuid()==0) {return true;} else {return false;}
-#endif
+
 }
 
 int find_install_package_1_fb(int* stdout_pipe);
 
-int run_command_1_fb(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr) {
-#ifdef WIN32
-    // CreateProcess()
-    // CreateProcessAsUser()
-    // ShellExecute...
-#else
+int run_command_1_fb(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr) 
+{
+
     if (need_admin_rights && !is_admin_fb())
         cmd.insert(cmd.begin(), "sudo");
     int return_code = 0;
@@ -90,15 +84,15 @@ int run_command_1_fb(vector<string> cmd, bool need_admin_rights = false, int *st
                 
             do {
                 waitpid(pid, &status, 0);
-            } while(!WIFEXITED(status)); // WIFEXITED(status) возвращает истинное значение, если потомок нормально завершился, то есть вызвал exit или _exit, или вернулся из функции main().
+            } while(!WIFEXITED(status) && !WIFSIGNALED(status)); // WIFEXITED(status) возвращает истинное значение, если потомок нормально завершился, то есть вызвал exit или _exit, или вернулся из функции main().
             int child_status;
             if(WEXITSTATUS(status) == 0) child_status = 0;
             else child_status = 1;
             return_code = return_code || child_status; 
+            break;
 
         }   
     }
-#endif
     return return_code;
 }
 
@@ -168,7 +162,7 @@ int find_install_package_1_fb(int* stdout_pipe)
     free(line);
 
     if(!found_package)
-        cout << "Не удалось найти пакет, который предоставляет библиотеку " << libname_fb << endl; //не прерывается программа ибо может собраться пакет и без этой библиотеки
+        cout << "Не удалось найти пакет, который предоставляет библиотеку/пакет " << libname_fb << endl; //не прерывается программа ибо может собраться пакет и без этой библиотеки
 
     if(install) return 0;
     else return 1;
@@ -276,8 +270,8 @@ void find_lib_fb(vector<string> libs, vector<string> libsPath)
                         libname_fb = path_to_lib/so_lib;
 			            cout << "Библиотека " << libname_fb << " найдена" << endl;
 			            string pathl = path_to_lib/so_lib;
-                        run_command_1_fb({"pkg","provides", "^"+pathl}, false, mypipe);
-                        found = true;
+                        if(run_command_1_fb({"pkg","provides", "^"+pathl}, false, mypipe) == 0)
+                            found = true;
                     }
                     else if(fs::exists(path_to_lib/a_lib))
                     {
@@ -285,8 +279,8 @@ void find_lib_fb(vector<string> libs, vector<string> libsPath)
                         libname_fb = path_to_lib/a_lib;
 			            cout << "Библиотека " << libname_fb << " найдена" << endl;
 			            string pathl = path_to_lib/a_lib;
-                        run_command_1_fb({"pkg","provides","^"+pathl}, false, mypipe);
-                        found = true;
+                        if(run_command_1_fb({"pkg","provides","^"+pathl}, false, mypipe) == 0)
+                            found = true;
                       
                     }
 
@@ -300,8 +294,8 @@ void find_lib_fb(vector<string> libs, vector<string> libsPath)
                     {
                         cout << "Библиотека " << libname_fb << " найдена" << endl;
                         string pathl = path_to_lib/so_lib;
-                        run_command_1_fb({"pkg","provides", "^"+pathl}, false, mypipe);
-                        found = true;
+                        if(run_command_1_fb({"pkg","provides", "^"+pathl}, false, mypipe) == 0)
+                            found = true;
                       
                     }
                 }
@@ -314,8 +308,8 @@ void find_lib_fb(vector<string> libs, vector<string> libsPath)
                     {
                         cout << "Библиотека " << libname_fb << " найдена" << endl;
                         string pathl = path_to_lib/a_lib;
-                        run_command_1_fb({"pkg","provides", "^"+pathl}, false, mypipe);
-                        found = true;
+                        if(run_command_1_fb({"pkg","provides", "^"+pathl}, false, mypipe) == 0)
+                            found = true;
                         
                     }    
 
