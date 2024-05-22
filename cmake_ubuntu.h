@@ -142,6 +142,7 @@ int find_install_package_1_ub(int* stdout_pipe)
                 install = true;
                 break; //пока ставится первый найденный пакет
             }
+            else cout << "Не удалось установить предоставляющий библиотеку пакет " << name_package_for_lib << endl;
                 
         }
 
