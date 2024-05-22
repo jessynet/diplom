@@ -21,14 +21,27 @@ fs::path path_to_package_lib_os = "";
 fs::path path_reply_os = "";
 string name_archive_os;
 
-void find_install_package_for_lib_os(fs::path path, string name_so, string name_a, bool *found_lib = nullptr)
+int find_install_package_for_lib_os(fs::path path, string name_so, string name_a, bool *found_lib = nullptr, bool library_not_found_anywhere = false)
 {
     libname_os = path/name_so;
+    int return_code_os = 0;
     int mypipe[2];
     if(pipe(mypipe))
     {
         perror("Ошибка канала");
         exit(1);
+    }
+    if(library_not_found_anywhere)
+    {
+        return_code_os = run_command_1_os({"zypper", "se", "--provides", name_so}, false, mypipe, true);
+        if(return_code_os) 
+        {
+            pipe(mypipe);
+            libname_os = path/name_a;
+            return_code_os = run_command_1_os({"zypper", "se", "--provides", name_a}, false, mypipe, true);
+        }
+        return return_code_os;
+
     }
     if(fs::exists(path/name_so))
     {
@@ -41,7 +54,7 @@ void find_install_package_for_lib_os(fs::path path, string name_so, string name_
     else
     {
         cout << "Библиотека " << path/name_so << " не найдена" << endl;
-        run_command_1_os({"zypper", "se", "--provides", name_so}, false, mypipe, true);
+        
 
         libname_os = path/name_a;
         if(pipe(mypipe))
@@ -60,11 +73,12 @@ void find_install_package_for_lib_os(fs::path path, string name_so, string name_
         else
         {
             cout << "Библиотека " << path/name_a << " не найдена" << endl;
-            run_command_1_os({"zypper", "se", "--provides", name_a}, false, mypipe, true);
-
+            return_code_os = 1;
         }
 
     }
+
+    return return_code_os;
 
 }
 
@@ -242,6 +256,9 @@ void trace_os()
 
                 else if(j["cmd"] == "find_library")
                 {
+                    //Пока считается, что только такой формат
+                    //find_library (<VAR> NAMES name PATHS paths... NO_DEFAULT_PATH)
+                    //find_library (<VAR> NAMES name)
                     //string name_lib;
                     vector <string> names_lib;
                     vector <string> paths_lib;
@@ -334,17 +351,18 @@ void trace_os()
                                 tmp_path = "";
                         }
                         cout << endl;
-                        names.push_back(tmp_path);
+                        if(tmp_path != "")
+                            paths.push_back(tmp_path);
 
                     }
 
-                    //for(auto i : names)
-                    //    cout << i << " ";
-                    //cout << endl;
+                    /*for(auto i : names)
+                       cout << i << " ";
+                    cout << endl;
 
-                    //for(auto j : paths)
-                    //    cout << j << " ";
-                    //cout << endl;
+                    for(auto j : paths)
+                        cout << j << " ";
+                    cout << endl; */
 
                     for(auto i : names)
                     {
@@ -352,42 +370,65 @@ void trace_os()
                         {
                             string l_name_so = "lib" + i + ".so";
                             string l_name_a = "lib" + i + ".a"; 
-                            if(flag) //не использовать дефолтные пути
-                            {
-                                for(auto j : paths)
-                                    if(j != "")
-                                        find_install_package_for_lib_os(j, l_name_so, l_name_a);
+                            
+                            if(flag) //не использовать дефолтные пути, указана опция NO_DEFAULT_PATH
+                            {   
+                                bool found_lib = false;
+                                if(paths.size() != 0)
+                                {
+                                    cout << "Поиск не осуществляется в дефолтных путях\n";
+                                    for(auto j : paths)
+                                        if(find_install_package_for_lib_os(j, l_name_so, l_name_a, &found_lib) == 0)
+                                            break;
+                                    if(!found_lib) //нигде не найдена библиотека 
+                                    {
+                                        cout << "Библиотека " << i << " не найдена не в одном из путей. Попытка найти ее и доставить в нужный каталог\n";
+                                        for(auto j : paths)
+                                            if(find_install_package_for_lib_os(j, l_name_so, l_name_a, NULL, true) == 0)
+                                                break;
+
+                                    }
+                                }
+
+                                else cout << "Нет путей (PATHS/HINTS) для поиска библиотеки " << i << endl;
 
                             }
 
                             else
                             {
+                                cout << "Поиск осуществляется в дефолтных путях и в указанных дополнительно, если такие есть\n";
                                 regex mask1(".*(toolchains).*",regex_constants::icase);
                                 vector <string> linkDirs = linkDirectories_os(mask1, path_reply_os); //Все каталоги, в которых стандартно ищутся библиотеки
                                 vector <fs::path> toolchainpath;
                                 for(auto p : linkDirs)
                                     toolchainpath.push_back(p);
+                                vector <fs::path> all_paths;
+                                all_paths = toolchainpath;
 
+                                for(const auto& element : paths)
+                                {
+                                    if(element != "") all_paths.push_back(element);
+
+                                }
+                                
                                 bool found_lib = false;
-                                for(auto j : toolchainpath)
+                                for(auto j : all_paths)
                                 {
-                                    find_install_package_for_lib_os(j, l_name_so, l_name_a, &found_lib);
+                                    if(find_install_package_for_lib_os(j, l_name_so, l_name_a, &found_lib) == 0)
+                                        break;
 
                                 }
 
-                                if(!found_lib)
+                                if(!found_lib) //нигде не найдена библиотека 
                                 {
-                                    for(auto j : paths)
-                                    {
-                                        if(j != "")
-                                        {
-                                            find_install_package_for_lib_os(j, l_name_so, l_name_a);
-                                        
-                                        }
-
-                                    }
+                                    cout << "Библиотека " << i << " не найдена не в одном из путей. Попытка найти ее и доставить в нужный каталог\n";
+                                    for(auto j : all_paths)
+                                        if(find_install_package_for_lib_os(j, l_name_so, l_name_a, NULL, true) == 0)
+                                            break;
 
                                 }
+
+                               
 
                             }
 
