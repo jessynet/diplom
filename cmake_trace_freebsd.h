@@ -18,7 +18,7 @@ namespace fs = std::experimental::filesystem;
 using json = nlohmann::json;
 
 fs::path path_to_package_lib_fb = "";
-fs::path path_reply_fb = "";
+vector <string> link_toolchain_dir_fb;
 string name_archive_fb;
 
 int find_install_package_for_lib_fb(fs::path path, string name_so, string name_a, bool *found_lib = nullptr,bool library_not_found_anywhere = false)
@@ -397,7 +397,7 @@ void trace_fb()
                             {
                                 cout << "Поиск осуществляется в дефолтных путях и в указанных дополнительно, если такие есть\n";
                                 regex mask1(".*(toolchains).*",regex_constants::icase);
-                                vector <string> linkDirs = linkDirectories_fb(mask1, path_reply_fb); //Все каталоги, в которых стандартно ищутся библиотеки
+                                vector <string> linkDirs = link_toolchain_dir_fb; //Все каталоги, в которых стандартно ищутся библиотеки
                                 vector <fs::path> toolchainpath;
                                 for(auto p : linkDirs)
                                     toolchainpath.push_back(p);
@@ -452,11 +452,11 @@ void trace_fb()
 }
 
 
-void freebsd_trace(fs::path unpc_path, fs::path path_to_package, fs::path path_to_reply, string archive_name)
+void freebsd_trace(fs::path unpc_path, fs::path path_to_package, vector <string> link_dirs, string archive_name)
 {
     chdir(unpc_path.c_str());
     path_to_package_lib_fb = path_to_package;
-    path_reply_fb = path_to_reply;
+    link_toolchain_dir_fb = link_dirs;
     name_archive_fb = archive_name;
     //chdir("/tmp/archives/xz-5.4.6/xz-5.4.6");
     run_command_trace_fb({"cmake", "--trace-format=json-v1"},false,true);
