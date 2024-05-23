@@ -40,11 +40,11 @@ class Os
         vector <string> phpize;
         string template_incorrect_path; //указатель на функцию из .h
         void (*ptr_cmake_depend)(fs::path,fs::path);
-        void (*ptr_cmake_trace)(fs::path,fs::path, fs::path,string);
+        void (*ptr_cmake_trace)(fs::path,fs::path, vector<string>,string);
 
     public:
 
-        virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false) = 0;
+        virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false, string *ptr = nullptr)  = 0;
 
         virtual void installation(const vector <string> packages) = 0;
 
@@ -103,12 +103,13 @@ class Os
             regex reg(template_incorrect_path, regex::extended);
             while((linelen = getline(&line, &linesize, f)) != -1)
             {
-                        
+                    
                 if(regex_match(line, reg))
                 {
                     return_code = 1;
                     break;
-                    }   
+                }
+                 
             }
             free(line);
             fclose(f);
@@ -183,7 +184,7 @@ class Unix : public Os
         
         }
 
-        virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false) 
+        virtual int run_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false, string *ptr = nullptr) 
         {
             if (need_admin_rights && !is_admin())
                 cmd.insert(cmd.begin(), "sudo");
@@ -229,8 +230,46 @@ class Unix : public Os
                 {
                     int status;
                         
-                    if (stdout_pipe) return_code = Os::check_tar(stdout_pipe);
-        
+                    if (stdout_pipe) 
+                    {
+                        if(ptr)
+                        {
+                    
+                            close(stdout_pipe[1]);
+                            FILE *f = fdopen(stdout_pipe[0], "r");
+                            if (!f) {
+                                auto es = strerror(errno);
+                                cerr << "fdopen failure: " << es << endl;
+                                exit(1);
+                            }
+                            char *line= NULL;
+                            size_t linesize = 0;
+                            ssize_t linelen;
+                            regex reg("CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES");
+                            while((linelen = getline(&line, &linesize, f)) != -1)
+                            {
+                                if(regex_search(line, reg))
+                                {
+                                    string temp_link_dirs = line;
+                                    int find_sep = temp_link_dirs.find('"');
+                                    temp_link_dirs = temp_link_dirs.substr(find_sep);
+                                    temp_link_dirs.erase(0,1);
+                                    temp_link_dirs.erase(temp_link_dirs.size() - 1);
+                                    *ptr = temp_link_dirs;
+                                    break;
+                                    
+                                }
+                 
+                            }
+                            free(line);
+                            fclose(f);
+
+                        }
+                        else return_code = Os::check_tar(stdout_pipe);
+
+                    }    
+                        
+
                     //Если порожденный процесс, заданный параметром pid, к моменту системного вызова находится в 
                     //состоянии закончил исполнение, системный вызов возвращается немедленно без блокирования текущего процесса.   
                     do {
@@ -451,15 +490,32 @@ class Unix : public Os
         virtual void cmake_trace()
         {
             fs::path path_to_reply = build_dir;
-            path_to_reply /= ".cmake";
-            path_to_reply /= "api";
-            path_to_reply /= "v1";
-            path_to_reply /= "reply";
+            string link_directories;
+            vector <string> link_dirs;
+
+            int mypipe_inf[2];
+            pipe(mypipe_inf);
+            cd(unpack_dir);
+            run_command({"cmake", "--system-information"},false,mypipe_inf,false, &link_directories);
+            char str_without_sep[link_directories.size()];
+            strcpy(str_without_sep, link_directories.c_str());
+            char *pch = strtok(str_without_sep, ";");
+
+            while(pch != NULL)
+            {
+                link_dirs.push_back(pch);
+                pch = strtok(NULL, ";");
+            }
+
+            for(auto i : link_dirs)
+                cout << i << endl;
+            cd(current_path);
+;
 
             fs::path path_to_package = "/tmp/archives/" + archive_name;
 
 
-            ptr_cmake_trace(unpack_dir,path_to_package,path_to_reply, archive_name);
+            ptr_cmake_trace(unpack_dir,path_to_package,link_dirs, archive_name);
 
         }
 
@@ -484,16 +540,11 @@ class FreeBsd : public Unix
         virtual int assembly_cmake()
         {
             installation({"bash"});
+            ptr_cmake_trace = freebsd_trace;
+            Unix::cmake_trace(); 
             return Unix::assembly_cmake();
-
+            
         }
-
-        virtual void cmake_trace()
-	    {
-
-		    ptr_cmake_trace = freebsd_trace;
-		    Unix::cmake_trace();
-	    }
 
         virtual int assembly_perl_build()
         {
@@ -592,11 +643,12 @@ class OpenSuse : public Linux
 
         }
 
-        virtual void cmake_trace()
+        virtual int assembly_cmake()
         {
             ptr_cmake_trace = opensuse_trace;
-            Unix::cmake_trace();        
-
+            Unix::cmake_trace(); 
+            return Unix::assembly_cmake();
+            
         }
 
         virtual void install_gems()
@@ -625,8 +677,10 @@ class Ubuntu : public Linux
         virtual int assembly_cmake()
         {
             installation({"libncurses-dev", "libreadline-dev", "libbsd-dev"});
+            ptr_cmake_trace = ubuntu_trace;
+            Unix::cmake_trace(); 
             return Unix::assembly_cmake();
-
+            
         }
 
         virtual int assembly_perl_build()
@@ -660,12 +714,7 @@ class Ubuntu : public Linux
             Unix::install_gems();
         }
 
-        virtual void cmake_trace()
-        {
-            ptr_cmake_trace = ubuntu_trace;
-            Unix::cmake_trace();        
-
-        }
+       
 
 
 };
@@ -735,7 +784,6 @@ void toDo(Os &os)
         {
             cout<<"Собрано с помощью CMake"<<"\n";
             os.cmake_libs();
-            os.cmake_trace();
             os.cd(os.get_build_dir());
             cout << os.get_current_path();
             os.return_code_command({"make", "-n", "install"},true); 
