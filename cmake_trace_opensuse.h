@@ -18,7 +18,7 @@ namespace fs = std::experimental::filesystem;
 using json = nlohmann::json;
 
 fs::path path_to_package_lib_os = "";
-fs::path path_reply_os = "";
+vector <string> link_toolchain_dir_os;
 string name_archive_os;
 
 int find_install_package_for_lib_os(fs::path path, string name_so, string name_a, bool *found_lib = nullptr, bool library_not_found_anywhere = false)
@@ -398,7 +398,7 @@ void trace_os()
                             {
                                 cout << "Поиск осуществляется в дефолтных путях и в указанных дополнительно, если такие есть\n";
                                 regex mask1(".*(toolchains).*",regex_constants::icase);
-                                vector <string> linkDirs = linkDirectories_os(mask1, path_reply_os); //Все каталоги, в которых стандартно ищутся библиотеки
+                                vector <string> linkDirs = link_toolchain_dir_os; //Все каталоги, в которых стандартно ищутся библиотеки
                                 vector <fs::path> toolchainpath;
                                 for(auto p : linkDirs)
                                     toolchainpath.push_back(p);
@@ -455,11 +455,11 @@ void trace_os()
 }
 
 
-void opensuse_trace(fs::path unpc_path, fs::path path_to_package, fs::path path_to_reply, string archive_name)
+void opensuse_trace(fs::path unpc_path, fs::path path_to_package, vector <string> link_dirs, string archive_name)
 {
     chdir(unpc_path.c_str());
     path_to_package_lib_os = path_to_package;
-    path_reply_os = path_to_reply;
+    link_toolchain_dir_os = link_dirs;
     name_archive_os = archive_name;
     //chdir("/tmp/archives/xz-5.4.6/xz-5.4.6");
     run_command_trace_os({"cmake", "--trace-format=json-v1"},false,true);
