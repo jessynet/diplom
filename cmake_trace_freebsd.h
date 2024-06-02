@@ -34,12 +34,12 @@ int find_install_package_for_lib_fb(fs::path path, string name_so, string name_a
 
     if(library_not_found_anywhere)
     {
-        return_code_fb = run_command_1_fb({"pkg", "provides",name_so}, false, mypipe);
+        return_code_fb = run_command_1_fb({"pkg", "provides", "^" + libname_fb}, false, mypipe);
         if(return_code_fb) 
         {
             pipe(mypipe);
             libname_fb = path/name_a;
-            return_code_fb = run_command_1_fb({"pkg", "provides", name_a}, false, mypipe);
+            return_code_fb = run_command_1_fb({"pkg", "provides", "^" + libname_fb}, false, mypipe);
         }
         return return_code_fb;
 
@@ -161,6 +161,129 @@ int run_command_trace_fb(vector <string> cmd, bool need_admin_rights = false, bo
 
 }
 
+list< vector<string> > name_variants_fb(string name)
+{
+    list< vector<string> > name_var;
+    vector<string> tmp_names;
+
+    
+
+    //особый случай (пока один)
+    //просто сохрняем в исходном виде
+    if(name == "Curses")
+    {
+        tmp_names = {"Curses", "Ncurses"};
+        name_var.push_back(tmp_names);
+    }
+    else
+    {
+        tmp_names = {name};
+        name_var.push_back(tmp_names);
+
+    }
+
+    vector<string> first_filter; 
+    //просто приводим все к нижнему регистру
+    for(vector<string> elem : name_var)
+    {
+        for(string i : elem)
+        {
+            for(int j = 0; j < i.size(); j++)
+                if(isupper(i[j]))
+                {
+                    char t = tolower(i[j]);
+                    i[j] = t;
+                }
+            first_filter.push_back(i);
+        }
+    }
+    name_var.push_back(first_filter);
+
+    //если несколько букв в верхнем регистре, то вставляем - и просто приводим в нижнему регистру,если одна заглавная
+    vector<string> second_filter; 
+    string second_type_name;
+    for(string i : name_var.front())
+    {
+        second_type_name = i;
+        int counter = 0;
+        int ind = 0;
+        
+        while(ind < second_type_name.size())
+        {
+            if(isupper(second_type_name[ind]))
+            {
+                counter++;
+                char t = tolower(second_type_name[ind]);
+                second_type_name[ind] = t;
+                if(counter > 1)
+                {
+                    string d;
+                    d = second_type_name.substr(0,ind)  + "-" + second_type_name.substr(ind);
+                    second_type_name = d;
+                }
+            }
+            ind++;
+        }
+
+        second_filter.push_back(second_type_name);
+    }
+    name_var.push_back(second_filter);
+
+    
+    //Добваляем lib в начало и расширения .so,.a
+    vector<string> third_filter;
+    string third_type_name;
+    for(vector<string> elem : name_var)
+    {
+        for(string i : elem)
+        {
+            third_type_name = "lib" + i + ".so"; //динамическая библиотека
+            third_filter.push_back(third_type_name);
+
+            third_type_name = "lib" + i + ".a"; //статическая библиотека
+            third_filter.push_back(third_type_name);
+
+        }
+
+    }
+
+    name_var.push_back(third_filter);
+
+
+
+    //+ -devel
+    vector<string> fourth_filter;
+    for(vector<string> elem : name_var)
+    {
+        for(string i : elem)
+        {
+            if(i.substr(0,3) != "lib")
+            {
+                string fourth_type_name = i + "-devel";
+                fourth_filter.push_back(fourth_type_name);
+                
+            }
+            
+        }
+
+    }
+
+    name_var.push_back(fourth_filter);
+
+
+    for(vector<string> elem : name_var)
+    {
+        cout << "{ ";
+        for(string i : elem)
+            cout << i << " ";
+        cout << "}" << endl;
+    }
+
+    return name_var;
+
+}
+
+
 
 void trace_fb()
 {
@@ -233,24 +356,92 @@ void trace_fb()
                     string package_name;
                     package_name = j["args"][0];
                     cout << j["args"][0] << endl;
+                    list <vector <string> > names;
+                    names = name_variants_fb(package_name);
                     int mypipe[2];
-                    if(pipe(mypipe))
+                    bool inst = false;
+                    for(vector<string> elem : names)
                     {
-                        perror("Ошибка канала");
-                        exit(1);
+                        if(inst) break;
+                        for(string i : elem)
+                        {
+                            if(pipe(mypipe))
+                            {
+                                perror("Ошибка канала");
+                                exit(1);
 
-                    }
-                    cout << "Установка пакета " << package_name << endl;
-                    libname_fb = package_name;
+                            }
+                            if(i.substr(0,3) != "lib") //не библиотека
+                            {
+                                cout << "Установка пакета " << i << endl;
+                                libname_fb = i;
 
-                    if(run_command_trace_fb({"pkg","install", package_name},true) != 0)
-                    {
-                        cout << "Не удалось установить пакет " << package_name << endl;
-                        cout << "Попытка найти пакет в другом пакете " << endl;
-                        run_command_1_fb({"pkg", "provides","/" + package_name + "$"}, false, mypipe);
+                                if(run_command_trace_fb({"pkg","install", i},true)  == 0)
+                                {
+                                    cout << "Пакет " << i << " установлен" << endl;
+                                    inst = true;
+                                    break;
+
+                                }
+                                    
+
+                            }
+                            else //библиотека
+                            {
+                                vector <string> lkDirs = link_toolchain_dir_os; //Все каталоги, в которых стандартно ищутся библиотеки
+                                vector <fs::path> standart_path;
+                                vector <string> libs = elem;
+                                for(auto p : lkDirs)
+                                    standart_path.push_back(p);
+                                bool lib_install = false;
+                                for(auto l : libs)
+                                {
+                                    for(auto path : standart_path)
+                                        if(fs::exists(path/l))
+                                        {
+                                            cout << "Библиотека " << path/l << "найдена" << endl;
+                                            libname_fb = path/l;
+                                            if(run_command_1_fb({"pkg", "provides", "^" + libname_fb}, false, mypipe) == 0)
+                                            {
+                                                lib_install = true;
+                                                inst = true;
+                                                break;
+                                            }                                 
+                                        }
+                                    if(lib_install) break;
+                                }
+
+                                if(!lib_install) //ни одна из библиотек не установлена, ищем любую и доставляем
+                                {
+                                    for(auto l : libs)
+                                    {
+                                        bool exit = false;
+                                        cout << "Библиотека " << l << " нигде не найдена" << endl;
+                                        for(auto path : standart_path)
+                                        {
+                                            libname_fb = path/l;
+                                            pipe(mypipe);
+                                            if(run_command_1_fb({"pkg", "provides", "^" + libname_fb}, false, mypipe) == 0)
+                                            {
+                                                inst = true;
+                                                exit = true;
+                                                break;
+
+                                            }                             
+                                        }
+                                        if(exit) break;
+                                        
+                                    }
+
+                                }
+
+                                break;
+
+                            }
+                            
+                        } 
                     }
-                    else
-                        cout << "Пакет " << package_name << " установлен" << endl; 
+
                    
                 
 
