@@ -335,7 +335,16 @@ class Unix : public Os
             }
         }
 
-    
+        virtual void cmake_libs()
+        {
+            fs::path path_to_reply = build_dir;
+            path_to_reply /= ".cmake";
+            path_to_reply /= "api";
+            path_to_reply /= "v1";
+            path_to_reply /= "reply";
+            ptr_cmake_depend(path_to_reply, build_dir);
+        }
+
         virtual int assembly_cmake()
         {   
             installation({"make"});
@@ -359,6 +368,7 @@ class Unix : public Os
             cd(build_dir);
             
             sum_code = sum_code || return_code_command({"cmake", unpack_dir}); 
+            cmake_libs();
             sum_code = sum_code || return_code_command({"make"});
              
             cd(current_path);
@@ -477,16 +487,6 @@ class Unix : public Os
             return sum_code;
         }
 
-        virtual void cmake_libs()
-        {
-            fs::path path_to_reply = build_dir;
-            path_to_reply /= ".cmake";
-            path_to_reply /= "api";
-            path_to_reply /= "v1";
-            path_to_reply /= "reply";
-            ptr_cmake_depend(path_to_reply, build_dir);
-        }
-
         virtual void cmake_trace()
         {
             fs::path path_to_reply = build_dir;
@@ -495,7 +495,7 @@ class Unix : public Os
 
             int mypipe_inf[2];
             pipe(mypipe_inf);
-            cd(unpack_dir);
+            cd(build_dir);
             run_command({"cmake", "--system-information"},false,mypipe_inf,false, &link_directories);
             char str_without_sep[link_directories.size()];
             strcpy(str_without_sep, link_directories.c_str());
@@ -509,8 +509,7 @@ class Unix : public Os
 
             for(auto i : link_dirs)
                 cout << i << endl;
-            cd(current_path);
-;
+            //cd(current_path);
 
             fs::path path_to_package = "/tmp/archives/" + archive_name;
 
@@ -530,18 +529,12 @@ class FreeBsd : public Unix
             cerr << "FreeBSD!\n";
         }
 
-        virtual void cmake_libs()
-        {
-            ptr_cmake_depend = find_depend_freebsd;
-            Unix::cmake_libs();
-
-        }
-
         virtual int assembly_cmake()
         {
             installation({"bash"});
             ptr_cmake_trace = freebsd_trace;
             Unix::cmake_trace(); 
+            ptr_cmake_depend = find_depend_freebsd;
             return Unix::assembly_cmake();
             
         }
@@ -634,19 +627,12 @@ class OpenSuse : public Linux
             phpize = {"/usr/bin/phpize"};
             return Unix::assembly_php();;
         }
-    
-
-        virtual void cmake_libs()
-        {
-            ptr_cmake_depend = find_depend_opensuse;
-            Unix::cmake_libs();
-
-        }
 
         virtual int assembly_cmake()
         {
             ptr_cmake_trace = opensuse_trace;
             Unix::cmake_trace(); 
+            ptr_cmake_depend = find_depend_opensuse;
             return Unix::assembly_cmake();
             
         }
@@ -667,18 +653,12 @@ class Ubuntu : public Linux
             cerr << "Ubuntu!\n";
         }
 
-        virtual void cmake_libs()
-        {
-            ptr_cmake_depend = find_depend_ubuntu;
-            Unix::cmake_libs();
-
-        }
-
         virtual int assembly_cmake()
         {
             installation({"libncurses-dev", "libreadline-dev", "libbsd-dev"});
             ptr_cmake_trace = ubuntu_trace;
             Unix::cmake_trace(); 
+            ptr_cmake_depend = find_depend_ubuntu;
             return Unix::assembly_cmake();
             
         }
@@ -783,7 +763,6 @@ void toDo(Os &os)
         if(fs::exists(os.get_unpack_dir()/"CMakeLists.txt") && os.assembly_cmake() == 0) //CMake
         {
             cout<<"Собрано с помощью CMake"<<"\n";
-            os.cmake_libs();
             os.cd(os.get_build_dir());
             cout << os.get_current_path();
             os.return_code_command({"make", "-n", "install"},true); 
