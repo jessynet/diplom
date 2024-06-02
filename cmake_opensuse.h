@@ -74,15 +74,15 @@ int run_command_1_os(vector<string> cmd, bool need_admin_rights = false, int *st
             int status; 
             if (stdout_pipe) 
             {
-                if(!checking_existence_lib) //проверка наличия бибилотеки при скачиваниии без установки
+                if(!checking_existence_lib) //не требуется проверка предоставлении бибилотеки при скачиваниии без установки
                 {
-                    if(!not_found_full_path_lib) //Если обработка не библиотеки из полного пути, которая не найдена 
+                    if(!not_found_full_path_lib) //Библиотека установлена, ищется пакет, из которого она ставилась
                         find_install_package_1_os(stdout_pipe,1);   
                     else
-                        if(find_install_package_1_os(stdout_pipe,2) != 0)
+                        if(find_install_package_1_os(stdout_pipe,2) != 0) //поиск пакета для библиотеки, которая не установлена, с конкретно заданым путем
                             return_code = 1;
                 }
-                else
+                else //требуется проверка предоставлении бибилотеки при скачиваниии без установки
                 { 
                     if(find_install_package_2_os(stdout_pipe) != 0)
                         return_code = 1;
