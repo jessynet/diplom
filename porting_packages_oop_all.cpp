@@ -548,12 +548,12 @@ class Unix : public Os
 
         vector<string> lib_list(fs::path pathToJson)
         {
-            vector<string> libs;
+            vector<string> lib;
             ifstream i(pathToJson);
             json j;
             i >> j;
             if(j["link"].is_null())
-                return libs;
+                return lib;
             int size = j["link"]["commandFragments"].size();
 
             for (int ind = 0; ind < size; ind++)
@@ -563,17 +563,17 @@ class Unix : public Os
                     string tmp = j["link"]["commandFragments"][ind]["fragment"];
                     tmp = tmp.substr(0,3);
                     if(tmp != "-Wl")
-                        libs.push_back(j["link"]["commandFragments"][ind]["fragment"]);
+                        lib.push_back(j["link"]["commandFragments"][ind]["fragment"]);
 
                 }
 
             }
 
-            return libs;
+            return lib;
 
         }
 
-        virtual void find_lib(vector<string> libs, vector<string> libsPath) = 0;
+        virtual void find_lib(vector<string> lib, vector<string> libsPath) = 0;
 
         void libs(regex mask, fs::path pathToDir, fs::path buildDir)
         {
@@ -597,15 +597,15 @@ class Unix : public Os
                     if(regex_match(entry.path().c_str(),mask))
                     {
                         //Берем бибилиотеки и пути с -L из каждого targeta, так как их может быть несколько
-                        vector<string> libs;//Библиотеки
+                        vector<string> lib;//Библиотеки
                         vector<string> libPath; //-L/...../
                         pathToFile = entry.path();
-                        libs = lib_list(pathToFile);
+                        lib = lib_list(pathToFile);
 
                         libPath = libp(pathToFile); //Тут пути с -L
-                        if(libs.size() != 0)
+                        if(lib.size() != 0)
                         {
-                            for(auto j: libs)
+                            for(auto j: lib)
                                 cout << j << " ";
                             cout << endl;
                         
@@ -617,12 +617,12 @@ class Unix : public Os
 
                                 check_libs(libPath, buildDir);
 
-                                find_lib(libs, libPath);
+                                find_lib(lib, libPath);
 
                             }
 
                             else
-                                find_lib(libs, linkDirs);
+                                find_lib(lib, linkDirs);
                         }
                             
                     }
@@ -633,7 +633,7 @@ class Unix : public Os
 
         }
 
-        virtual void cmake_libs()
+        void cmake_libs()
         {
             fs::path path_to_reply = build_dir;
             path_to_reply /= ".cmake";
@@ -863,7 +863,7 @@ class Unix : public Os
             if(second_filter.size() != 0) name_var.push_back(second_filter);
 
             
-            //Добваляем lib в начало и расширения .dll,.a,.dll.a
+            //Добваляем lib в начало и расширения .so,.a
             vector<string> third_filter;
             string third_type_name;
             for(vector<string> elem : name_var)
@@ -884,15 +884,18 @@ class Unix : public Os
 
 
 
-            //+ -devel
+            //+ -devel, -dev
             vector<string> fourth_filter;
+            string fourth_type_name;
             for(vector<string> elem : name_var)
             {
                 for(string i : elem)
                 {
                     if(i.substr(0,3) != "lib")
                     {
-                        string fourth_type_name = i + "-devel";
+                        fourth_type_name = i + "-devel";
+                        fourth_filter.push_back(fourth_type_name);
+                        fourth_type_name = i + "-dev";
                         fourth_filter.push_back(fourth_type_name);
 
                     } 
@@ -902,6 +905,19 @@ class Unix : public Os
             }
 
             name_var.push_back(fourth_filter);
+
+
+            //libname-devel, libname-dev
+            vector<string> five_filter;
+            string five_type_name;
+            for(auto elem : name_var.back())
+            {
+                five_type_name = "lib" + elem;
+                five_filter.push_back(five_type_name);               
+
+            }
+
+            name_var.push_back(five_filter);
 
 
             for(vector<string> elem : name_var)
@@ -2502,7 +2518,7 @@ class OpenSuse : public Linux
                         exit(1);
 
                     }
-                    if(i.substr(0,3) != "lib") //не библиотека
+                    if(i.substr(0,3) != "lib" || (i.substr(0,3) == "lib" && i.find("dev") != i.npos)) //не библиотека
                     {
                         cout << "Установка пакета " << i << endl;
                         libname = i;
@@ -2529,6 +2545,7 @@ class OpenSuse : public Linux
                             for(auto path : standart_path)
                                 if(fs::exists(path/l))
                                 {
+                                    libname = path/l;
                                     cout << "Библиотека " << path/l << "найдена" << endl;
                                     if(run_command_1({"zypper", "se", "--provides", path/l}, false, mypipe) == 0)
                                     {
@@ -2655,7 +2672,7 @@ class Ubuntu : public Linux
 
         virtual int assembly_cmake()
         {
-            installation({"libncurses-dev", "libreadline-dev", "libbsd-dev"});
+            //installation({"libncurses-dev", "libreadline-dev", "libbsd-dev"});
             Unix::cmake_trace(); 
             return Unix::assembly_cmake();
             
@@ -2692,7 +2709,7 @@ class Ubuntu : public Linux
             Unix::install_gems();
         }
 
-        virtual void find_lib(vector<string> libs, vector<string> libsPath)
+        virtual void find_lib(vector<string> lib, vector<string> libsPath)
         {
             string path;
             string check_l;
@@ -2704,7 +2721,7 @@ class Ubuntu : public Linux
             vector <fs::path> path_copy;
             string nl = "";
 
-            for(auto l : libs)
+            for(auto l : lib)
             {
                 found = false;
                 if(pipe(mypipe)) 
@@ -2942,7 +2959,7 @@ class Ubuntu : public Linux
                         exit(1);
 
                     }
-                    if(i.substr(0,3) != "lib") //не библиотека
+                    if(i.substr(0,3) != "lib" || (i.substr(0,3) == "lib" && i.find("dev") != i.npos)) //не библиотека 
                     {
                         cout << "Установка пакета " << i << endl;
                         libname = i;
@@ -2970,6 +2987,7 @@ class Ubuntu : public Linux
                                 if(fs::exists(path/l))
                                 {
                                     cout << "Библиотека " << path/l << "найдена" << endl;
+                                    libname = path/l;
                                     string reg_path = path/l;
                                     reg_path = "^" + reg_path;
                                     if(run_command_1({"apt-file", "-F", "search", reg_path}, false, mypipe) == 0)
@@ -3120,7 +3138,7 @@ class Ubuntu : public Linux
 
                 cout << name_package_for_lib << endl;
 
-                if(name_package_for_lib != "")
+                if(name_package_for_lib != "" && name_package_for_lib != "libeditreadline-dev") //второе условие —  полученно вручную и нужно для рещения конфликта в реализациях readline
                 {
                     
                     found_package = true;
@@ -3412,6 +3430,3 @@ string os;
 #endif
 
 }
-
-
-
