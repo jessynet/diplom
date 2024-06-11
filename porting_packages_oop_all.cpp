@@ -57,6 +57,8 @@ class Os
 
         virtual int assembly_autotools() = 0;
 
+        virtual void find_lib(vector<string> lib, vector<string> libsPath) = 0;
+
         virtual int gemspec_exists(string path) = 0;
 
         virtual string find_file(regex mask, fs::path pathToDir, bool return_name_file = false) = 0;
@@ -70,6 +72,10 @@ class Os
         virtual int assembly_perl_build() = 0;
 
         virtual int assembly_perl_make() = 0;
+
+        virtual void find_packages(list <vector <string> > names) = 0;
+
+        virtual void find_libraries(vector<string> names, bool flag, vector <fs::path> paths) = 0;
 
         virtual int assembly_php() = 0;
 
@@ -286,6 +292,22 @@ class Unix : public Os
         
             return return_code;
         } 
+
+        virtual void find_packages(list <vector <string> > names)
+        {
+            cout << "Поиск пакетов с помощью трассировки\n";
+
+        }
+        virtual void find_libraries(vector<string> names, bool flag, vector <fs::path> paths)
+        {
+            cout << "Поиск библиотек с помощью трассировки\n";
+
+        }
+
+        virtual void find_lib(vector<string> libs, vector<string> libsPath)
+        {
+            cout << "Поиск библиотек с помощью target\n";
+        }
 
         virtual int return_code_command(vector<string> cmd, bool need_admin_rights = false, int *stdout_pipe = nullptr, bool hide_stderr = false)
         {
@@ -573,7 +595,7 @@ class Unix : public Os
 
         }
 
-        virtual void find_lib(vector<string> lib, vector<string> libsPath) = 0;
+        
 
         void libs(regex mask, fs::path pathToDir, fs::path buildDir)
         {
@@ -788,8 +810,6 @@ class Unix : public Os
             return sum_code;
         }
         
-        virtual void find_packages(list <vector <string> > names) = 0;
-        virtual void find_libraries(vector<string> names, bool flag, vector <fs::path> paths) = 0;
         
         list< vector<string> > name_variants(string name)
         {
@@ -1832,22 +1852,7 @@ class Linux : public Unix
 
             return os_name;
         }
-        virtual void find_packages(list <vector <string> > names)
-        {
-            cout << "Поиск пакетов с помощью трассировки\n";
-
-        }
-        virtual void find_libraries(vector<string> names, bool flag, vector <fs::path> paths)
-        {
-            cout << "Поиск библиотек с помощью трассировки\n";
-
-        }
-
-        virtual void find_lib(vector<string> libs, vector<string> libsPath)
-        {
-            cout << "Поиск библиотек с помощью target\n";
-        }
-
+        
 
 };
 
