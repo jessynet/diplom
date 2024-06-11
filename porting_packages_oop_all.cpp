@@ -1662,7 +1662,7 @@ class FreeBsd : public Unix
                         exit(1);
 
                     }
-                    if(i.substr(0,3) != "lib") //не библиотека
+                    if(i.substr(0,3) != "lib" || (i.substr(0,3) == "lib" && i.find("dev") != i.npos)) //не библиотека
                     {
                         cout << "Установка пакета " << i << endl;
                         libname = i;
