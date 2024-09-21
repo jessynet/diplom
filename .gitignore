@@ -1,0 +1,10 @@
+# Git and GitHub-specific files
+.git*
+
+# IDE files
+CMakeLists.txt.user
+*~
+
+# Output files
+pp
+pp.exe
