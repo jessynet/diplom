@@ -20,7 +20,7 @@ else()
     message(FATAL_ERROR "Unsupported OS ${CMAKE_SYSTEM_NAME}")
 endif()
 
-add_executable(porting
+add_executable(pp
     main.cpp
     os.h os.cpp
     ${OS_SOURCES}
@@ -28,13 +28,13 @@ add_executable(porting
 
 if (CMAKE_CXX_COMPILER_ID MATCHES ".*Clang")
     if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 10)
-        target_link_libraries(porting c++fs)
+        target_link_libraries(pp c++fs)
     endif()
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    target_link_libraries(porting stdc++fs)
+    target_link_libraries(pp stdc++fs)
 else()
     message(FATAL_ERROR "Unsupported C++ filesystem library")
 endif()
 
 find_package(nlohmann_json REQUIRED)
-target_link_libraries(porting nlohmann_json)
+target_link_libraries(pp nlohmann_json)
