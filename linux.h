@@ -13,8 +13,8 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-#ifndef LINUX_H
-#define LINUX_H
+#ifndef PP_LINUX_H
+#define PP_LINUX_H
 
 #include "unix.h"
 
@@ -24,4 +24,4 @@ public:
     std::string os_name(std::string path);
 };
 
-#endif // LINUX_H
+#endif // PP_LINUX_H

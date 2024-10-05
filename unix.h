@@ -13,8 +13,8 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-#ifndef UNIX_H
-#define UNIX_H
+#ifndef PP_UNIX_H
+#define PP_UNIX_H
 
 #include "os.h"
 
@@ -64,4 +64,4 @@ public:
 };
 
 
-#endif // UNIX_H
+#endif // PP_UNIX_H

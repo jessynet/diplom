@@ -13,8 +13,8 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-#ifndef UBUNTU_H
-#define UBUNTU_H
+#ifndef PP_UBUNTU_H
+#define PP_UBUNTU_H
 
 #include "linux.h"
 
@@ -38,4 +38,4 @@ public:
     virtual void find_libraries(std::vector<std::string> names, bool flag, std::vector<std::filesystem::path> paths);
 };
 
-#endif // UBUNTU_H
+#endif // PP_UBUNTU_H

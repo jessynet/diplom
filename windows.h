@@ -13,8 +13,8 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-#ifndef WINDOWS_H
-#define WINDOWS_H
+#ifndef PP_WINDOWS_H
+#define PP_WINDOWS_H
 
 #include "os.h"
 
@@ -46,4 +46,4 @@ public:
     void set_udir(std::filesystem::path p);
 };
 
-#endif // WINDOWS_H
+#endif // PP_WINDOWS_H

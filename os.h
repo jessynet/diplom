@@ -13,8 +13,8 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-#ifndef OS_H
-#define OS_H
+#ifndef PP_OS_H
+#define PP_OS_H
 
 #include <filesystem>
 #include <list>
@@ -97,4 +97,4 @@ public:
 };
 
 
-#endif // OS_H
+#endif // PP_OS_H
